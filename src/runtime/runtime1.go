@@ -61,6 +61,9 @@ var (
 //
 //go:nosplit
 func argv_index(argv **byte, i int32) *byte {
+	if argv32 { // the kernel's 32-bit words, on 64-bit wasm (linux/wasm)
+		return (*byte)(unsafe.Pointer(uintptr(*(*uint32)(add(unsafe.Pointer(argv), uintptr(i)*4)))))
+	}
 	return *(**byte)(add(unsafe.Pointer(argv), uintptr(i)*goarch.PtrSize))
 }
 

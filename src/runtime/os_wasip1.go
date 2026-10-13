@@ -266,3 +266,6 @@ func nanotime1() int64 {
 	}
 	return int64(time)
 }
+
+//go:wasmimport wasi_snapshot_preview1 sched_yield
+func sched_yield() errno

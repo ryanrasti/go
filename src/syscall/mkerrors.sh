@@ -108,7 +108,9 @@ includes_Linux='
 #endif
 #define _GNU_SOURCE
 
+#if __has_include(<bits/sockaddr.h>)
 #include <bits/sockaddr.h>
+#endif
 #include <sys/epoll.h>
 #include <sys/inotify.h>
 #include <sys/ioctl.h>

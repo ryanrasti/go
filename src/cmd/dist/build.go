@@ -1789,6 +1789,7 @@ var cgoEnabled = map[string]bool{
 	"linux/riscv64":   true,
 	"linux/s390x":     true,
 	"linux/sparc64":   true,
+	"linux/wasm":      false, // linux-workers: LKL's wasm32 processes
 	"android/386":     true,
 	"android/amd64":   true,
 	"android/arm":     true,

@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build wasip1
+//go:build wasip1 || (linux && wasm)
 
 package runtime
 
@@ -110,6 +110,3 @@ func beforeIdle(int64, int64) (*g, bool) {
 }
 
 func checkTimeouts() {}
-
-//go:wasmimport wasi_snapshot_preview1 sched_yield
-func sched_yield() errno

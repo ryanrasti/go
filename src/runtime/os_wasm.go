@@ -6,7 +6,7 @@ package runtime
 
 import (
 	"internal/runtime/atomic"
-	"unsafe"
+	_ "unsafe" // for go:linkname
 )
 
 func osinit() {
@@ -152,7 +152,3 @@ func sigdisable(uint32)              {}
 func sigenable(uint32)               {}
 func sigignore(uint32)               {}
 
-// Stubs so tests can link correctly. These should never be called.
-func open(name *byte, mode, perm int32) int32        { panic("not implemented") }
-func closefd(fd int32) int32                         { panic("not implemented") }
-func read(fd int32, p unsafe.Pointer, n int32) int32 { panic("not implemented") }

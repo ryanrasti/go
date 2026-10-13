@@ -99,8 +99,6 @@ func Syscall6(trap, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2 uintptr, err Errno) 
 	return
 }
 
-func rawSyscallNoError(trap, a1, a2, a3 uintptr) (r1, r2 uintptr)
-func rawVforkSyscall(trap, a1, a2, a3 uintptr) (r1 uintptr, err Errno)
 
 /*
  * Wrapped
@@ -769,11 +767,11 @@ func SetsockoptIPMreqn(fd, level, opt int, mreq *IPMreqn) (err error) {
 
 func recvmsgRaw(fd int, p, oob []byte, flags int, rsa *RawSockaddrAny) (n, oobn int, recvflags int, err error) {
 	var msg Msghdr
-	msg.Name = (*byte)(unsafe.Pointer(rsa))
+	msg.setName(unsafe.Pointer(rsa))
 	msg.Namelen = uint32(SizeofSockaddrAny)
 	var iov Iovec
 	if len(p) > 0 {
-		iov.Base = &p[0]
+		iov.setBase(&p[0])
 		iov.SetLen(len(p))
 	}
 	var dummy byte
@@ -786,14 +784,14 @@ func recvmsgRaw(fd int, p, oob []byte, flags int, rsa *RawSockaddrAny) (n, oobn 
 			}
 			// receive at least one normal byte
 			if sockType != SOCK_DGRAM {
-				iov.Base = &dummy
+				iov.setBase(&dummy)
 				iov.SetLen(1)
 			}
 		}
-		msg.Control = &oob[0]
+		msg.setControl(&oob[0])
 		msg.SetControllen(len(oob))
 	}
-	msg.Iov = &iov
+	msg.setIov(&iov)
 	msg.Iovlen = 1
 	if n, err = recvmsg(fd, &msg, flags); err != nil {
 		return
@@ -805,11 +803,11 @@ func recvmsgRaw(fd int, p, oob []byte, flags int, rsa *RawSockaddrAny) (n, oobn 
 
 func sendmsgN(fd int, p, oob []byte, ptr unsafe.Pointer, salen _Socklen, flags int) (n int, err error) {
 	var msg Msghdr
-	msg.Name = (*byte)(ptr)
+	msg.setName(ptr)
 	msg.Namelen = uint32(salen)
 	var iov Iovec
 	if len(p) > 0 {
-		iov.Base = &p[0]
+		iov.setBase(&p[0])
 		iov.SetLen(len(p))
 	}
 	var dummy byte
@@ -822,14 +820,14 @@ func sendmsgN(fd int, p, oob []byte, ptr unsafe.Pointer, salen _Socklen, flags i
 			}
 			// send at least one normal byte
 			if sockType != SOCK_DGRAM {
-				iov.Base = &dummy
+				iov.setBase(&dummy)
 				iov.SetLen(1)
 			}
 		}
-		msg.Control = &oob[0]
+		msg.setControl(&oob[0])
 		msg.SetControllen(len(oob))
 	}
-	msg.Iov = &iov
+	msg.setIov(&iov)
 	msg.Iovlen = 1
 	if n, err = sendmsg(fd, &msg, flags); err != nil {
 		return 0, err
@@ -961,14 +959,14 @@ const (
 
 func PtraceGetRegs(pid int, regsout *PtraceRegs) (err error) {
 	var iov Iovec
-	iov.Base = (*byte)(unsafe.Pointer(regsout))
+	iov.setBase((*byte)(unsafe.Pointer(regsout)))
 	iov.SetLen(int(unsafe.Sizeof(*regsout)))
 	return ptracePtr(PTRACE_GETREGSET, pid, uintptr(_NT_PRSTATUS), unsafe.Pointer(&iov))
 }
 
 func PtraceSetRegs(pid int, regs *PtraceRegs) (err error) {
 	var iov Iovec
-	iov.Base = (*byte)(unsafe.Pointer(regs))
+	iov.setBase((*byte)(unsafe.Pointer(regs)))
 	iov.SetLen(int(unsafe.Sizeof(*regs)))
 	return ptracePtr(PTRACE_SETREGSET, pid, uintptr(_NT_PRSTATUS), unsafe.Pointer(&iov))
 }

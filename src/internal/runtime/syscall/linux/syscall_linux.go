@@ -12,8 +12,6 @@ import (
 
 // TODO(https://go.dev/issue/51087): Move remaining syscalls to this package.
 
-// Syscall6 calls system call number 'num' with arguments a1-6.
-func Syscall6(num, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2, errno uintptr)
 
 func EpollCreate1(flags int32) (fd int32, errno uintptr) {
 	r1, _, e := Syscall6(SYS_EPOLL_CREATE1, uintptr(flags), 0, 0, 0, 0, 0)
@@ -75,7 +73,7 @@ func Pread(fd int, p []byte, offset int64) (n int, errno uintptr) {
 	}
 	var r1, e uintptr
 	switch goarch.GOARCH {
-	case "386":
+	case "386", "wasm":
 		r1, _, e = Syscall6(SYS_PREAD64, uintptr(fd), uintptr(p0), uintptr(len(p)), uintptr(offset), uintptr(offset>>32), 0)
 	case "arm", "mipsle":
 		r1, _, e = Syscall6(SYS_PREAD64, uintptr(fd), uintptr(p0), uintptr(len(p)), 0, uintptr(offset), uintptr(offset>>32))

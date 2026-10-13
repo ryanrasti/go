@@ -75,7 +75,7 @@ func SetLsfPromisc(name string, m bool) error {
 func AttachLsf(fd int, i []SockFilter) error {
 	var p SockFprog
 	p.Len = uint16(len(i))
-	p.Filter = (*SockFilter)(unsafe.Pointer(&i[0]))
+	p.setFilter(&i[0])
 	return setsockopt(fd, SOL_SOCKET, SO_ATTACH_FILTER, unsafe.Pointer(&p), unsafe.Sizeof(p))
 }
 

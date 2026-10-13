@@ -69,6 +69,7 @@ var wasmFuncTypes = map[string]*wasmFuncType{
 	"_rt0_wasm_js":            {Params: []byte{}},                                         //
 	"_rt0_wasm_wasip1":        {Params: []byte{}},                                         //
 	"_rt0_wasm_wasip1_lib":    {Params: []byte{}},                                         //
+	"_rt0_wasm_linux":         {Params: []byte{I32}},                                      // the start block (argc, argv...)
 	"wasm_export__start":      {},                                                         //
 	"wasm_export_run":         {Params: []byte{I32, I32}},                                 // argc, argv
 	"wasm_export_resume":      {Params: []byte{}},                                         //
@@ -445,6 +446,26 @@ func writeExportSec(ctxt *ld.Link, ldr *loader.Loader, lenHostImports int) {
 		writeName(ctxt.Out, "memory") // memory in wasi
 		ctxt.Out.WriteByte(0x02)      // mem export
 		writeUleb128(ctxt.Out, 0)     // memidx
+	case "linux":
+		// linux-workers: an LKL process, as musl's: _start_c, and its memory
+		writeUleb128(ctxt.Out, uint64(2+len(ldr.WasmExports))) // number of exports
+		s := ldr.Lookup("_rt0_wasm_linux", 0)
+		if s == 0 {
+			ld.Errorf("export symbol _rt0_wasm_linux not defined")
+		}
+		idx := uint32(lenHostImports) + uint32(ldr.SymValue(s)>>16) - funcValueOffset
+		writeName(ctxt.Out, "_start_c")
+		ctxt.Out.WriteByte(0x00)            // func export
+		writeUleb128(ctxt.Out, uint64(idx)) // funcidx
+		for _, s := range ldr.WasmExports {
+			idx := uint32(lenHostImports) + uint32(ldr.SymValue(s)>>16) - funcValueOffset
+			writeName(ctxt.Out, ldr.SymName(s))
+			ctxt.Out.WriteByte(0x00)            // func export
+			writeUleb128(ctxt.Out, uint64(idx)) // funcidx
+		}
+		writeName(ctxt.Out, "memory")
+		ctxt.Out.WriteByte(0x02)  // mem export
+		writeUleb128(ctxt.Out, 0) // memidx
 	case "js":
 		writeUleb128(ctxt.Out, uint64(4+len(ldr.WasmExports))) // number of exports
 		for _, name := range []string{"run", "resume", "getsp"} {
