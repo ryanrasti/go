@@ -95,15 +95,35 @@ func notetsleepg(n *note, ns int64) bool {
 		if n.key != 0 {
 			return true
 		}
-		if sched_yield() != 0 {
-			throw("sched_yield failed")
+		if GOOS == "linux" {
+			// linux/wasm: asleep on a timer, a while at a time, not runnable:
+			// a goroutine always runnable (os/signal's, waiting for a
+			// signal for good) kept the scheduler from going idle, where it
+			// waits in netpoll (epoll_pwait) for I/O, timers and signals.
+			// Without that, nothing polled the network: no connection was
+			// accepted, and the process took a CPU doing nothing.
+			d := int64(noteSleepQuantum)
+			if ns >= 0 && deadline-nanotime() < d {
+				d = deadline - nanotime()
+			}
+			if d > 0 {
+				timeSleep(d)
+			}
+		} else {
+			if sched_yield() != 0 {
+				throw("sched_yield failed")
+			}
+			Gosched()
 		}
-		Gosched()
 		if ns >= 0 && nanotime() >= deadline {
 			return false
 		}
 	}
 }
+
+// how long notetsleepg sleeps between looks at its note (linux/wasm): how
+// late a signal can be seen
+const noteSleepQuantum = 10_000_000
 
 func beforeIdle(int64, int64) (*g, bool) {
 	return nil, false
