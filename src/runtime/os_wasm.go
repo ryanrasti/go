@@ -93,8 +93,6 @@ func unminit() {
 func mdestroy(mp *m) {
 }
 
-// wasm has no signals
-const _NSIG = 0
 
 func signame(sig uint32) string {
 	return ""
@@ -104,20 +102,12 @@ func crash() {
 	abort()
 }
 
-func initsig(preinit bool) {
-}
-
 // May run with m.p==nil, so write barriers are not allowed.
 //
 //go:nowritebarrier
 func newosproc(mp *m) {
 	throw("newosproc: not implemented")
 }
-
-// Do nothing on WASM platform, always return EPIPE to caller.
-//
-//go:linkname os_sigpipe os.sigpipe
-func os_sigpipe() {}
 
 //go:linkname syscall_now syscall.now
 func syscall_now() (sec int64, nsec int32) {
@@ -148,7 +138,4 @@ func getfp() uintptr { return 0 }
 
 func setProcessCPUProfiler(hz int32) {}
 func setThreadCPUProfiler(hz int32)  {}
-func sigdisable(uint32)              {}
-func sigenable(uint32)               {}
-func sigignore(uint32)               {}
 

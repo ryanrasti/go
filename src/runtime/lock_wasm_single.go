@@ -92,6 +92,9 @@ func notetsleepg(n *note, ns int64) bool {
 
 	deadline := nanotime() + ns
 	for {
+		if GOOS == "linux" {
+			wasmDeliverSignals() // (os_linux_wasm.go)
+		}
 		if n.key != 0 {
 			return true
 		}

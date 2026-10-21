@@ -18,3 +18,8 @@ TEXT _rt0_wasm_linux(SB),NOSPLIT,$0
 	Call wasm_pc_f_loop(SB)
 
 	Return
+
+// func wasmSigtrampPC() uintptr
+TEXT runtime·wasmSigtrampPC(SB), NOSPLIT, $0-8
+	MOVD $runtime_wasm_sigtramp(SB), ret+0(FP)
+	RET

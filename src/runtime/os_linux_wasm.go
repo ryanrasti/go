@@ -183,3 +183,113 @@ func ignoreSIGSYS() {}
 //go:linkname restoreSIGSYS os.restoreSIGSYS
 func restoreSIGSYS() {}
 
+
+// Signals. The kernel calls a process's handler at a system call's return,
+// through the host: table entry sa_handler, called with the signal's number,
+// on the wasm stack of the call it interrupts (arch/wasm/kernel/signal.c).
+// The runtime's handler, wasmSigtramp, only notes the signal; what
+// os/signal wants of it is sent on (sigsend) from a goroutine, the one
+// waiting for signals (notetsleepg), where the runtime can do anything.
+// Handlers are installed for the signals os/signal asks for, and SIGPIPE
+// (which, unless asked for, is ignored: the write fails with EPIPE), as on
+// other Linux; the others keep the kernel's default actions.
+
+const (
+	_SYS_kill         = 129
+	_SYS_rt_sigaction = 134
+	_SYS_getpid       = 172
+	_SA_RESTART       = 0x10000000
+	_SIG_DFL          = 0
+	_SIG_IGN          = 1
+	_SIGPIPE          = 13
+)
+
+// the kernel's struct sigaction (asm-generic's, with sa_restorer)
+type sigactiont struct {
+	_        structs.HostLayout
+	handler  uint32
+	flags    uint32
+	restorer uint32
+	mask     [2]uint32
+}
+
+const _NSIG = 65
+
+// signals the kernel delivered, not yet sent on
+var wasmPendingSignals uint64
+
+// wasmSigtramp is the runtime's signal handler, called by the host as the
+// process's table entry: nosplit, on the stack of the goroutine whose
+// system call it interrupts.
+//
+//go:wasmexport runtime_wasm_sigtramp
+//go:nosplit
+func wasmSigtramp(sig int32) {
+	wasmPendingSignals |= 1 << (uint32(sig) & 63)
+}
+
+// wasmSigtrampPC is wasmSigtramp's wasm entry (its wasmexport wrapper,
+// runtime_wasm_sigtramp), as a PC (rt0_linux_wasm.s).
+func wasmSigtrampPC() uintptr
+
+func setsig(sig uint32, handler uint32) {
+	sa := sigactiont{handler: handler}
+	if handler > _SIG_IGN {
+		sa.flags = _SA_RESTART
+	}
+	syscall6(_SYS_rt_sigaction, uintptr(sig), uintptr(unsafe.Pointer(&sa)), 0, 8, 0, 0)
+}
+
+// the handler, as the kernel calls it: an index in the process's table (PC_F)
+func wasmSigHandler() uint32 {
+	return uint32(wasmSigtrampPC() >> 16)
+}
+
+func initsig(preinit bool) {
+	setsig(_SIGPIPE, wasmSigHandler())
+}
+
+func sigenable(sig uint32) {
+	setsig(sig, wasmSigHandler())
+}
+
+func sigdisable(sig uint32) {
+	if sig != _SIGPIPE {
+		setsig(sig, _SIG_DFL)
+	}
+}
+
+func sigignore(sig uint32) {
+	setsig(sig, _SIG_IGN)
+}
+
+// wasmDeliverSignals sends the noted signals on to os/signal; one it
+// doesn't want (it stopped wanting it) takes the kernel's default action,
+// but SIGPIPE, which is ignored.
+func wasmDeliverSignals() {
+	for wasmPendingSignals != 0 {
+		p := wasmPendingSignals
+		wasmPendingSignals = 0
+		for s := uint32(1); s < 64; s++ {
+			if p&(1<<s) != 0 && !sigsend(s) && s != _SIGPIPE {
+				dieFromSignal(s)
+			}
+		}
+	}
+}
+
+// dieFromSignal ends the process by the signal's default action.
+func dieFromSignal(sig uint32) {
+	setsig(sig, _SIG_DFL)
+	pid, _ := syscall6(_SYS_getpid, 0, 0, 0, 0, 0, 0)
+	syscall6(_SYS_kill, pid, uintptr(sig), 0, 0, 0, 0)
+	exit(2)
+}
+
+// os.sigpipe: a write to standard output or error failed with EPIPE, which
+// ends the program by SIGPIPE, as on other Linux.
+//
+//go:linkname os_sigpipe os.sigpipe
+func os_sigpipe() {
+	dieFromSignal(_SIGPIPE)
+}
