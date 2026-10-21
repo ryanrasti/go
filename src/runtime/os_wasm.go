@@ -14,11 +14,6 @@ func osinit() {
 	physPageSize = 64 * 1024
 	initBloc()
 	blocMax = uintptr(currentMemory()) * physPageSize // record the initial linear memory size
-	if GOOS == "linux" {
-		// what's beyond the program's data is the host's: LKL put the
-		// process's start block there (and more), growing the memory
-		bloc = blocMax
-	}
 	numCPUStartup = getCPUCount()
 	getg().m.procid = 2
 }

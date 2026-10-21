@@ -19,7 +19,7 @@ TEXT runtime·rt0_go(SB), NOSPLIT|NOFRAME|TOPFRAME, $0
 	CALLNORESUME runtime·args(SB)
 #endif
 #ifdef GOOS_linux
-	CALLNORESUME runtime·args(SB) // the kernel's start block (rt0_linux_wasm.s)
+	CALLNORESUME runtime·wasmArgs(SB) // the kernel's wasm_get_args (os_linux_wasm.go)
 #endif
 	CALLNORESUME runtime·osinit(SB)
 	CALLNORESUME runtime·schedinit(SB)

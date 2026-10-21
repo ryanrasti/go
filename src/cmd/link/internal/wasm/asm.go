@@ -69,7 +69,7 @@ var wasmFuncTypes = map[string]*wasmFuncType{
 	"_rt0_wasm_js":            {Params: []byte{}},                                         //
 	"_rt0_wasm_wasip1":        {Params: []byte{}},                                         //
 	"_rt0_wasm_wasip1_lib":    {Params: []byte{}},                                         //
-	"_rt0_wasm_linux":         {Params: []byte{I32}},                                      // the start block (argc, argv...)
+	"_rt0_wasm_linux":         {Params: []byte{}},                                         //
 	"wasm_export__start":      {},                                                         //
 	"wasm_export_run":         {Params: []byte{I32, I32}},                                 // argc, argv
 	"wasm_export_resume":      {Params: []byte{}},                                         //
@@ -246,10 +246,12 @@ func asmb2(ctxt *ld.Link, ldr *loader.Loader) {
 	}
 
 	writeTypeSec(ctxt, types)
-	writeImportSec(ctxt, hostImports)
+	writeImportSec(ctxt, ldr, hostImports)
 	writeFunctionSec(ctxt, fns)
 	writeTableSec(ctxt, fns)
-	writeMemorySec(ctxt, ldr)
+	if buildcfg.GOOS != "linux" { // (linux: imported)
+		writeMemorySec(ctxt, ldr)
+	}
 	writeGlobalSec(ctxt)
 	writeExportSec(ctxt, ldr, len(hostImports))
 	writeElementSec(ctxt, uint64(len(hostImports)), uint64(len(fns)))
@@ -319,10 +321,14 @@ func writeTypeSec(ctxt *ld.Link, types []*wasmFuncType) {
 
 // writeImportSec writes the section that lists the functions that get
 // imported from the WebAssembly host, usually JavaScript.
-func writeImportSec(ctxt *ld.Link, hostImports []*wasmFunc) {
+func writeImportSec(ctxt *ld.Link, ldr *loader.Loader, hostImports []*wasmFunc) {
 	sizeOffset := writeSecHeader(ctxt, sectionImport)
 
-	writeUleb128(ctxt.Out, uint64(len(hostImports))) // number of imports
+	numImports := len(hostImports)
+	if buildcfg.GOOS == "linux" {
+		numImports++ // env.memory
+	}
+	writeUleb128(ctxt.Out, uint64(numImports)) // number of imports
 	for _, fn := range hostImports {
 		if fn.Module != "" {
 			writeName(ctxt.Out, fn.Module)
@@ -332,6 +338,17 @@ func writeImportSec(ctxt *ld.Link, hostImports []*wasmFunc) {
 		writeName(ctxt.Out, fn.Name)
 		ctxt.Out.WriteByte(0x00) // func import
 		writeUleb128(ctxt.Out, uint64(fn.Type))
+	}
+	if buildcfg.GOOS == "linux" {
+		// linux-workers: the process's memory is the host's (as musl's
+		// programs import it): shared, so that its threads can share it,
+		// and with a maximum, which the host reserves (all of wasm32's).
+		writeName(ctxt.Out, "env")
+		writeName(ctxt.Out, "memory")
+		ctxt.Out.WriteByte(0x02)                         // mem import
+		ctxt.Out.WriteByte(0x03)                         // shared, with a maximum
+		writeUleb128(ctxt.Out, initialMemoryPages(ldr)) // minimum (initial) memory size
+		writeUleb128(ctxt.Out, 1<<16)                    // maximum: 4 GiB
 	}
 
 	writeSecSize(ctxt, sizeOffset)
@@ -370,16 +387,20 @@ func writeTableSec(ctxt *ld.Link, fns []*wasmFunc) {
 func writeMemorySec(ctxt *ld.Link, ldr *loader.Loader) {
 	sizeOffset := writeSecHeader(ctxt, sectionMemory)
 
+	writeUleb128(ctxt.Out, 1)                       // number of memories
+	ctxt.Out.WriteByte(0x00)                        // no maximum memory size
+	writeUleb128(ctxt.Out, initialMemoryPages(ldr)) // minimum (initial) memory size
+
+	writeSecSize(ctxt, sizeOffset)
+}
+
+// initialMemoryPages is the memory's initial size, in wasm pages.
+func initialMemoryPages(ldr *loader.Loader) uint64 {
 	dataEnd := uint64(ldr.SymValue(ldr.Lookup("runtime.end", 0)))
 	var initialSize = dataEnd + 1<<20 // 1 MB, for runtime init allocating a few pages
 
 	const wasmPageSize = 64 << 10 // 64KB
-
-	writeUleb128(ctxt.Out, 1)                        // number of memories
-	ctxt.Out.WriteByte(0x00)                         // no maximum memory size
-	writeUleb128(ctxt.Out, initialSize/wasmPageSize) // minimum (initial) memory size
-
-	writeSecSize(ctxt, sizeOffset)
+	return initialSize / wasmPageSize
 }
 
 // writeGlobalSec writes the section that declares global variables.
@@ -450,14 +471,16 @@ func writeExportSec(ctxt *ld.Link, ldr *loader.Loader, lenHostImports int) {
 		ctxt.Out.WriteByte(0x02)      // mem export
 		writeUleb128(ctxt.Out, 0)     // memidx
 	case "linux":
-		// linux-workers: an LKL process, as musl's: _start_c, and its memory
+		// linux-workers: a process of tombl's arch/wasm, as musl's: _start
+		// (binfmt_wasm's entry), and the table the kernel calls functions
+		// of the program's through (signal handlers, a thread's start)
 		writeUleb128(ctxt.Out, uint64(2+len(ldr.WasmExports))) // number of exports
 		s := ldr.Lookup("_rt0_wasm_linux", 0)
 		if s == 0 {
 			ld.Errorf("export symbol _rt0_wasm_linux not defined")
 		}
 		idx := uint32(lenHostImports) + uint32(ldr.SymValue(s)>>16) - funcValueOffset
-		writeName(ctxt.Out, "_start_c")
+		writeName(ctxt.Out, "_start")
 		ctxt.Out.WriteByte(0x00)            // func export
 		writeUleb128(ctxt.Out, uint64(idx)) // funcidx
 		for _, s := range ldr.WasmExports {
@@ -466,9 +489,9 @@ func writeExportSec(ctxt *ld.Link, ldr *loader.Loader, lenHostImports int) {
 			ctxt.Out.WriteByte(0x00)            // func export
 			writeUleb128(ctxt.Out, uint64(idx)) // funcidx
 		}
-		writeName(ctxt.Out, "memory")
-		ctxt.Out.WriteByte(0x02)  // mem export
-		writeUleb128(ctxt.Out, 0) // memidx
+		writeName(ctxt.Out, "__indirect_function_table")
+		ctxt.Out.WriteByte(0x01)  // table export
+		writeUleb128(ctxt.Out, 0) // tableidx
 	case "js":
 		writeUleb128(ctxt.Out, uint64(4+len(ldr.WasmExports))) // number of exports
 		for _, name := range []string{"run", "resume", "getsp"} {

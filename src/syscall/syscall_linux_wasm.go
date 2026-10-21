@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// linux-workers: LKL's wasm32 processes. Their system calls are the
+// linux-workers: tombl's arch/wasm processes. Their system calls are the
 // asm-generic ones for 32 bits, with riscv32's choices: no 32-bit time
 // calls (the _time64 ones instead), stat only as statx (as loong64's),
 // fcntl64, _llseek, the *64 calls for 64-bit sizes and offsets, which take

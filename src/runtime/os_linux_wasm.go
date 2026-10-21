@@ -2,10 +2,11 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// linux-workers: Linux on wasm, as LKL runs processes (src/lkl/host.ts in
-// linux-workers): the process's memory is its own wasm memory, which it
-// grows itself (no mmap: as on other wasm), and the kernel's system calls
-// are its linux.syscall import, the 32-bit asm-generic ABI's (as riscv32's).
+// linux-workers: Linux on wasm, tombl's arch/wasm (binfmt_wasm.c): the
+// process's memory is its own wasm memory (env.memory, imported), which it
+// grows itself (the kernel has no memory system calls: as on other wasm),
+// and the kernel's system calls are its linux.syscall import, the 32-bit
+// asm-generic ABI's (as riscv32's), with arch/wasm's own numbers above 244.
 // The runtime is the single-threaded one of wasm (os_wasm.go): this file
 // gives it what wasip1 gives it through WASI (os_wasip1.go), from Linux.
 
@@ -27,6 +28,7 @@ const (
 	_SYS_getrandom               = 278
 	_SYS_clock_gettime64         = 403
 	_SYS_clock_nanosleep_time64  = 407
+	_SYS_wasm_get_args           = 245 // __NR_arch_specific_syscall + 1
 	_CLOCK_REALTIME              = 0
 	_CLOCK_MONOTONIC             = 1
 	_EINTR                       = 4
@@ -38,6 +40,22 @@ type timespec64 struct {
 	_    structs.HostLayout
 	sec  int64
 	nsec int64
+}
+
+// wasmProcessArgs is where the kernel puts the arguments, environment and
+// auxiliary vector (struct wasm_process_args: len, envc, argc, then argv and
+// envp, 32-bit pointers), as musl's crt (arch/wasm32/crt_arch.h): four
+// pages, the kernel's limit.
+var wasmProcessArgs [256 << 10 / 4]uint32
+
+// wasmArgs is rt0_go's args on linux/wasm: from the kernel's wasm_get_args.
+//
+//go:nosplit
+func wasmArgs() {
+	if _, e := syscall6(_SYS_wasm_get_args, uintptr(unsafe.Pointer(&wasmProcessArgs[0])), uintptr(len(wasmProcessArgs)*4), 0, 0, 0, 0); e != 0 {
+		exit(127)
+	}
+	args(int32(wasmProcessArgs[2]), (**byte)(unsafe.Pointer(uintptr(wasmProcessArgs[3]))))
 }
 
 //go:nosplit
