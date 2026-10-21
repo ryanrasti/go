@@ -256,6 +256,9 @@ func asmb2(ctxt *ld.Link, ldr *loader.Loader) {
 	writeCodeSec(ctxt, fns)
 	writeDataSec(ctxt)
 	writeProducerSec(ctxt)
+	if buildcfg.GOOS == "linux" {
+		writeLibcSec(ctxt)
+	}
 	if !*ld.FlagS {
 		writeNameSec(ctxt, len(hostImports), fns)
 	}
@@ -619,6 +622,16 @@ func writeProducerSec(ctxt *ld.Link) {
 	writeName(ctxt.Out, "Go cmd/compile") // value: name
 	writeName(ctxt.Out, buildcfg.Version) // value: version
 
+	writeSecSize(ctxt, sizeOffset)
+}
+
+// writeLibcSec writes the version of the contract between linux/wasm
+// programs and the host (its imports, exports and their behavior), which
+// the host checks at exec: musl's crt1.c writes the same.
+func writeLibcSec(ctxt *ld.Link) {
+	sizeOffset := writeSecHeader(ctxt, sectionCustom)
+	writeName(ctxt.Out, "linux.libc")
+	ctxt.Out.Write([]byte("1"))
 	writeSecSize(ctxt, sizeOffset)
 }
 
