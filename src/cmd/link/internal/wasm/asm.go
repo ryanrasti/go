@@ -345,10 +345,10 @@ func writeImportSec(ctxt *ld.Link, ldr *loader.Loader, hostImports []*wasmFunc) 
 		// and with a maximum, which the host reserves (all of wasm32's).
 		writeName(ctxt.Out, "env")
 		writeName(ctxt.Out, "memory")
-		ctxt.Out.WriteByte(0x02)                         // mem import
-		ctxt.Out.WriteByte(0x03)                         // shared, with a maximum
+		ctxt.Out.WriteByte(0x02)                        // mem import
+		ctxt.Out.WriteByte(0x03)                        // shared, with a maximum
 		writeUleb128(ctxt.Out, initialMemoryPages(ldr)) // minimum (initial) memory size
-		writeUleb128(ctxt.Out, 1<<16)                    // maximum: 4 GiB
+		writeUleb128(ctxt.Out, 1<<16)                   // maximum: 4 GiB
 	}
 
 	writeSecSize(ctxt, sizeOffset)

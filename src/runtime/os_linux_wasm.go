@@ -22,17 +22,17 @@ import (
 const argv32 = true
 
 const (
-	_SYS_exit_group              = 94
-	_SYS_write                   = 64
-	_SYS_sched_yield             = 124
-	_SYS_getrandom               = 278
-	_SYS_clock_gettime64         = 403
-	_SYS_clock_nanosleep_time64  = 407
-	_SYS_wasm_get_args           = 245 // __NR_arch_specific_syscall + 1
-	_CLOCK_REALTIME              = 0
-	_CLOCK_MONOTONIC             = 1
-	_EINTR                       = 4
-	_EAGAIN                      = 11
+	_SYS_exit_group             = 94
+	_SYS_write                  = 64
+	_SYS_sched_yield            = 124
+	_SYS_getrandom              = 278
+	_SYS_clock_gettime64        = 403
+	_SYS_clock_nanosleep_time64 = 407
+	_SYS_wasm_get_args          = 245 // __NR_arch_specific_syscall + 1
+	_CLOCK_REALTIME             = 0
+	_CLOCK_MONOTONIC            = 1
+	_EINTR                      = 4
+	_EAGAIN                     = 11
 )
 
 // struct __kernel_timespec
@@ -182,7 +182,6 @@ func ignoreSIGSYS() {}
 
 //go:linkname restoreSIGSYS os.restoreSIGSYS
 func restoreSIGSYS() {}
-
 
 // Signals. The kernel calls a process's handler at a system call's return,
 // through the host: table entry sa_handler, called with the signal's number,

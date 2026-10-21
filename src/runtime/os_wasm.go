@@ -93,7 +93,6 @@ func unminit() {
 func mdestroy(mp *m) {
 }
 
-
 func signame(sig uint32) string {
 	return ""
 }
@@ -138,4 +137,3 @@ func getfp() uintptr { return 0 }
 
 func setProcessCPUProfiler(hz int32) {}
 func setThreadCPUProfiler(hz int32)  {}
-
