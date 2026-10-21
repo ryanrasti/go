@@ -8,7 +8,7 @@ package linux
 // its lkl.syscall import: arguments and result are the 32-bit ABI's words
 // (a 64-bit argument takes two, low word first).
 //
-//go:wasmimport lkl syscall
+//go:wasmimport linux syscall
 //go:noescape
 func lklSyscall(num, a1, a2, a3, a4, a5, a6 int32) int32
 

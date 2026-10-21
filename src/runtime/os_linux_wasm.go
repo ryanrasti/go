@@ -5,7 +5,7 @@
 // linux-workers: Linux on wasm, as LKL runs processes (src/lkl/host.ts in
 // linux-workers): the process's memory is its own wasm memory, which it
 // grows itself (no mmap: as on other wasm), and the kernel's system calls
-// are its lkl.syscall import, the 32-bit asm-generic ABI's (as riscv32's).
+// are its linux.syscall import, the 32-bit asm-generic ABI's (as riscv32's).
 // The runtime is the single-threaded one of wasm (os_wasm.go): this file
 // gives it what wasip1 gives it through WASI (os_wasip1.go), from Linux.
 
