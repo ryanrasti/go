@@ -292,4 +292,3 @@ func dieFromSignal(sig uint32) {
 func os_sigpipe() {
 	dieFromSignal(_SIGPIPE)
 }
-
