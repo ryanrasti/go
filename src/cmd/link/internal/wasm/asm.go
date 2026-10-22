@@ -27,18 +27,19 @@ const (
 )
 
 const (
-	sectionCustom   = 0
-	sectionType     = 1
-	sectionImport   = 2
-	sectionFunction = 3
-	sectionTable    = 4
-	sectionMemory   = 5
-	sectionGlobal   = 6
-	sectionExport   = 7
-	sectionStart    = 8
-	sectionElement  = 9
-	sectionCode     = 10
-	sectionData     = 11
+	sectionCustom    = 0
+	sectionType      = 1
+	sectionImport    = 2
+	sectionFunction  = 3
+	sectionTable     = 4
+	sectionMemory    = 5
+	sectionGlobal    = 6
+	sectionExport    = 7
+	sectionStart     = 8
+	sectionElement   = 9
+	sectionCode      = 10
+	sectionData      = 11
+	sectionDataCount = 12
 )
 
 // funcValueOffset is the offset between the PC_F value of a function and the index of the function in WebAssembly
@@ -237,6 +238,13 @@ func asmb2(ctxt *ld.Link, ldr *loader.Loader) {
 		fns[i] = &wasmFunc{Name: name, Type: typ, Code: wfn.Bytes()}
 	}
 
+	segments := dataSegments()
+	startIdx := -1 // linux: _start's function index
+	if buildcfg.GOOS == "linux" {
+		startIdx = len(hostImports) + len(fns)
+		fns = append(fns, linuxStartFunc(ldr, len(hostImports), segments, lookupType(&wasmFuncType{}, &types)))
+	}
+
 	ctxt.Out.Write([]byte{0x00, 0x61, 0x73, 0x6d}) // magic
 	ctxt.Out.Write([]byte{0x01, 0x00, 0x00, 0x00}) // version
 
@@ -253,10 +261,13 @@ func asmb2(ctxt *ld.Link, ldr *loader.Loader) {
 		writeMemorySec(ctxt, ldr)
 	}
 	writeGlobalSec(ctxt)
-	writeExportSec(ctxt, ldr, len(hostImports))
+	writeExportSec(ctxt, ldr, len(hostImports), startIdx)
 	writeElementSec(ctxt, uint64(len(hostImports)), uint64(len(fns)))
+	if buildcfg.GOOS == "linux" {
+		writeDataCountSec(ctxt, len(segments))
+	}
 	writeCodeSec(ctxt, fns)
-	writeDataSec(ctxt)
+	writeDataSec(ctxt, segments)
 	writeProducerSec(ctxt)
 	if buildcfg.GOOS == "linux" {
 		writeLibcSec(ctxt)
@@ -438,7 +449,7 @@ func writeGlobalSec(ctxt *ld.Link) {
 // writeExportSec writes the section that declares exports.
 // Exports can be accessed by the WebAssembly host, usually JavaScript.
 // The wasm_export_* functions and the linear memory get exported.
-func writeExportSec(ctxt *ld.Link, ldr *loader.Loader, lenHostImports int) {
+func writeExportSec(ctxt *ld.Link, ldr *loader.Loader, lenHostImports int, startIdx int) {
 	sizeOffset := writeSecHeader(ctxt, sectionExport)
 
 	switch buildcfg.GOOS {
@@ -475,14 +486,9 @@ func writeExportSec(ctxt *ld.Link, ldr *loader.Loader, lenHostImports int) {
 		// (binfmt_wasm's entry), and the table the kernel calls functions
 		// of the program's through (signal handlers, a thread's start)
 		writeUleb128(ctxt.Out, uint64(2+len(ldr.WasmExports))) // number of exports
-		s := ldr.Lookup("_rt0_wasm_linux", 0)
-		if s == 0 {
-			ld.Errorf("export symbol _rt0_wasm_linux not defined")
-		}
-		idx := uint32(lenHostImports) + uint32(ldr.SymValue(s)>>16) - funcValueOffset
 		writeName(ctxt.Out, "_start")
-		ctxt.Out.WriteByte(0x00)            // func export
-		writeUleb128(ctxt.Out, uint64(idx)) // funcidx
+		ctxt.Out.WriteByte(0x00)                 // func export
+		writeUleb128(ctxt.Out, uint64(startIdx)) // funcidx: linuxStartFunc
 		for _, s := range ldr.WasmExports {
 			idx := uint32(lenHostImports) + uint32(ldr.SymValue(s)>>16) - funcValueOffset
 			writeName(ctxt.Out, ldr.SymName(s))
@@ -554,19 +560,22 @@ func writeCodeSec(ctxt *ld.Link, fns []*wasmFunc) {
 	writeSecSize(ctxt, sizeOffset)
 }
 
-// writeDataSec writes the section that provides data that will be used to initialize the linear memory.
-func writeDataSec(ctxt *ld.Link) {
-	sizeOffset := writeSecHeader(ctxt, sectionData)
+type dataSegment struct {
+	offset int32
+	data   []byte
+}
 
-	type dataSegment struct {
-		offset int32
-		data   []byte
-	}
+// dataSegments returns the data segments that initialize the linear memory.
+func dataSegments() []*dataSegment {
 
 	// Omit blocks of zeroes and instead emit data segments with offsets skipping the zeroes.
 	// This reduces the size of the WebAssembly binary. We use 8 bytes as an estimate for the
 	// overhead of adding a new segment (same as wasm-opt's memory-packing optimization uses).
-	const segmentOverhead = 8
+	segmentOverhead := int32(8)
+	if buildcfg.GOOS == "linux" {
+		// (passive: and _start's memory.init and data.drop, about as much again)
+		segmentOverhead = 24
+	}
 
 	// Generate at most this many segments. A higher number of segments gets rejected by some WebAssembly runtimes.
 	const maxNumSegments = 100000
@@ -616,16 +625,63 @@ func writeDataSec(ctxt *ld.Link) {
 		}
 	}
 
+	return segments
+}
+
+// writeDataSec writes the section that provides data that will be used to initialize the linear memory.
+func writeDataSec(ctxt *ld.Link, segments []*dataSegment) {
+	sizeOffset := writeSecHeader(ctxt, sectionData)
+
 	writeUleb128(ctxt.Out, uint64(len(segments))) // number of data entries
 	for _, seg := range segments {
-		writeUleb128(ctxt.Out, 0) // memidx
-		writeI32Const(ctxt.Out, seg.offset)
-		ctxt.Out.WriteByte(0x0b) // end
+		if buildcfg.GOOS == "linux" {
+			// passive: copied in by _start (linuxStartFunc), not by each
+			// instance (a thread's, a vfork child's) of the shared memory
+			writeUleb128(ctxt.Out, 1)
+		} else {
+			writeUleb128(ctxt.Out, 0) // memidx
+			writeI32Const(ctxt.Out, seg.offset)
+			ctxt.Out.WriteByte(0x0b) // end
+		}
 		writeUleb128(ctxt.Out, uint64(len(seg.data)))
 		ctxt.Out.Write(seg.data)
 	}
 
 	writeSecSize(ctxt, sizeOffset)
+}
+
+// writeDataCountSec writes the number of data segments, which code that
+// refers to them (memory.init, data.drop) needs declared before it.
+func writeDataCountSec(ctxt *ld.Link, n int) {
+	sizeOffset := writeSecHeader(ctxt, sectionDataCount)
+	writeUleb128(ctxt.Out, uint64(n))
+	writeSecSize(ctxt, sizeOffset)
+}
+
+// linuxStartFunc is linux/wasm's _start: the data segments copied into the
+// memory (which is shared: other instances of the program, a thread's or a
+// vfork child's, leave it as it is), then the runtime's entry.
+func linuxStartFunc(ldr *loader.Loader, lenHostImports int, segments []*dataSegment, typ uint32) *wasmFunc {
+	b := new(bytes.Buffer)
+	writeUleb128(b, 0) // no locals
+	for i, seg := range segments {
+		writeI32Const(b, seg.offset)
+		writeI32Const(b, 0)
+		writeI32Const(b, int32(len(seg.data)))
+		b.Write([]byte{0xfc, 0x08}) // memory.init
+		writeUleb128(b, uint64(i))
+		b.WriteByte(0x00)           // memidx
+		b.Write([]byte{0xfc, 0x09}) // data.drop
+		writeUleb128(b, uint64(i))
+	}
+	s := ldr.Lookup("_rt0_wasm_linux", 0)
+	if s == 0 {
+		ld.Errorf("export symbol _rt0_wasm_linux not defined")
+	}
+	b.WriteByte(0x10) // call
+	writeUleb128(b, uint64(uint32(lenHostImports)+uint32(ldr.SymValue(s)>>16)-funcValueOffset))
+	b.WriteByte(0x0b) // end
+	return &wasmFunc{Name: "_start", Type: typ, Code: b.Bytes()}
 }
 
 // writeProducerSec writes an optional section that reports the source language and compiler version.
