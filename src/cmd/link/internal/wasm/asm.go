@@ -71,6 +71,7 @@ var wasmFuncTypes = map[string]*wasmFuncType{
 	"_rt0_wasm_wasip1":        {Params: []byte{}},                                         //
 	"_rt0_wasm_wasip1_lib":    {Params: []byte{}},                                         //
 	"_rt0_wasm_linux":         {Params: []byte{}},                                         //
+	"wasm_vfork_child":        {Params: []byte{I32}, Results: []byte{I32}},                // the parent's g and SP
 	"wasm_export__start":      {},                                                         //
 	"wasm_export_run":         {Params: []byte{I32, I32}},                                 // argc, argv
 	"wasm_export_resume":      {Params: []byte{}},                                         //

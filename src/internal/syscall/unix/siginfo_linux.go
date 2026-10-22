@@ -8,7 +8,7 @@ import (
 	"syscall"
 )
 
-const is64bit = ^uint(0) >> 63 // 0 for 32-bit hosts, 1 for 64-bit ones.
+// is64bit: 0 for 32-bit hosts, 1 for 64-bit ones (siginfo_linux_is64bit.go)
 
 // SiginfoChild is a struct filled in by Linux waitid syscall.
 // In C, siginfo_t contains a union with multiple members;

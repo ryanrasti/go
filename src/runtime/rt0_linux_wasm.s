@@ -23,3 +23,31 @@ TEXT _rt0_wasm_linux(SB),NOSPLIT,$0
 TEXT runtime·wasmSigtrampPC(SB), NOSPLIT, $0-8
 	MOVD $runtime_wasm_sigtramp(SB), ret+0(FP)
 	RET
+
+// wasm_vfork_child is a vfork child's entry (syscall.rawVforkSyscall's
+// clone function, which the kernel calls as int (*)(u32)): it returns
+// from rawVforkSyscall, with 0, as the parent's goroutine, on its stack.
+// R0: syscall.wasmVfork (i32): the goroutine's g, and SP as it returns.
+TEXT wasm_vfork_child(SB),NOSPLIT,$0
+	Get R0
+	I64Load $0
+	Set g
+
+	Get R0
+	I64Load $8
+	I32WrapI64
+	Set SP
+
+	// rawVforkSyscall's results (r1+32(FP), err+40(FP)): 0, 0
+	Get SP
+	I64Const $0
+	I64Store $32
+	Get SP
+	I64Const $0
+	I64Store $40
+
+	// its caller, from its return PC, at -8(SP)
+	Call wasm_pc_f_loop(SB)
+
+	I32Const $0
+	Return

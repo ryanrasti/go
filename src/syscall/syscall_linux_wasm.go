@@ -380,9 +380,33 @@ func rawSyscallNoError(trap, a1, a2, a3 uintptr) (r1, r2 uintptr) {
 	return
 }
 
-// vfork's child can't run on wasm: it would return twice from the call.
-// (Exec needs a spawn of the kernel's, later.)
-func rawVforkSyscall(trap, a1, a2, a3 uintptr) (r1 uintptr, err Errno) {
-	return 0, ENOSYS
+// execArgv is argv or envp as execve takes them: the ABI's 32-bit
+// pointers (into p's strings, which the caller keeps alive), in a slice
+// typed as p is, for forkAndExecInChild, which takes its first element's
+// address.
+func execArgv(p []*byte) []*byte {
+	w := make([]uint32, len(p)+len(p)%2)
+	for i, b := range p {
+		w[i] = uint32(uintptr(unsafe.Pointer(b)))
+	}
+	return unsafe.Slice((**byte)(unsafe.Pointer(&w[0])), len(w)/2)
 }
 
+// vfork (asm_linux_wasm.s): where its child finds its way back (the
+// runtime's wasm_vfork_child reads it), and the clone call
+var wasmVfork struct {
+	g  uintptr
+	sp uintptr
+}
+
+func rawVforkSyscall(trap, a1, a2, a3 uintptr) (r1 uintptr, err Errno)
+
+//go:nosplit
+//go:norace
+func vforkClone(trap, fn, arg, flags, ptid uintptr) (r1 uintptr, err Errno) {
+	if trap != SYS_CLONE {
+		return 0, ENOSYS // (clone3: for what clone can't do)
+	}
+	r1, _, e := runtimesyscall.Syscall6(SYS_CLONE, fn, arg, flags, ptid, 0, 0)
+	return r1, Errno(e)
+}

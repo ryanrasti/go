@@ -205,7 +205,9 @@ func forkExec(argv0 string, argv []string, attr *ProcAttr) (pid int, err error) 
 	}
 
 	// Kick off child.
-	pid, err1 = forkAndExecInChild(argv0p, argvp, envvp, chroot, dir, attr, sys, p[1])
+	pid, err1 = forkAndExecInChild(argv0p, execArgv(argvp), execArgv(envvp), chroot, dir, attr, sys, p[1])
+	runtime.KeepAlive(argvp) // (execArgv's: linux/wasm's copies point into them)
+	runtime.KeepAlive(envvp)
 	if err1 != 0 {
 		Close(p[0])
 		Close(p[1])
@@ -297,8 +299,10 @@ func Exec(argv0 string, argv []string, envv []string) (err error) {
 	default:
 		_, _, err1 = RawSyscall(SYS_EXECVE,
 			uintptr(unsafe.Pointer(argv0p)),
-			uintptr(unsafe.Pointer(&argvp[0])),
-			uintptr(unsafe.Pointer(&envvp[0])))
+			uintptr(unsafe.Pointer(&execArgv(argvp)[0])),
+			uintptr(unsafe.Pointer(&execArgv(envvp)[0])))
+		runtime.KeepAlive(argvp)
+		runtime.KeepAlive(envvp)
 	}
 	runtime_AfterExec()
 	return err1
