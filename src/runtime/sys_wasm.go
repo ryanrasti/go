@@ -44,6 +44,10 @@ func notInitialized1() {
 	writeErrStr("runtime: wasmexport function called before runtime initialization\n")
 	if isarchive || islibrary {
 		writeErrStr("\tcall _initialize first\n")
+	} else if GOOS == "linux" {
+		// (an instance of the program the runtime didn't start: with
+		// cgo, a thread of C's calling Go)
+		writeErrStr("\ton a thread Go didn't start (cgo: C's threads can't call Go)\n")
 	} else {
 		writeErrStr("\tcall _start first\n")
 	}
