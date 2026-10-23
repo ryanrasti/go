@@ -346,6 +346,8 @@ func (c *cgoLink) load(ctxt *ld.Link, ldr *loader.Loader) error {
 					r.kind, r.k = resGlobal, cgoGlobalTLSSize
 				case "__tls_align":
 					r.kind, r.k = resGlobal, cgoGlobalTLSAlign
+				case "__memory_base", "__table_base":
+					return fmt.Errorf("%s: C compiled position independent (-fPIC), as for dynamic linking; cgo's C is linked statically, by a C compiler that doesn't (pkgsWasm32Linux.pkgsStatic's)", c.referrers(uint32(i)))
 				default:
 					return fmt.Errorf("undefined: %s (a global, referenced from C: %s)", s.Name, c.referrers(uint32(i)))
 				}
