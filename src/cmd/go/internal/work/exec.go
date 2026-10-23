@@ -3230,6 +3230,13 @@ func (b *Builder) dynimport(a *Action, objdir, importGo, cgoExe string, cflags, 
 	p := a.Package
 	sh := b.Shell(a)
 
+	// linux/wasm: C is linked statically (cmd/link loads it, wasm-ld
+	// -r'd with libc): no dynamic imports, and no object cgo -dynimport
+	// could read
+	if cfg.Goarch == "wasm" {
+		return "", "", nil
+	}
+
 	cfile := objdir + "_cgo_main.c"
 	ofile := objdir + "_cgo_main.o"
 	if err := b.gcc(a, objdir, ofile, cflags, cfile); err != nil {
