@@ -7,20 +7,31 @@ package runtime
 import "unsafe"
 
 func sbrk(n uintptr) unsafe.Pointer {
-	sbrkSync()
-	bl := bloc
 	n = memRound(n)
-	if bl+n > blocMax {
+	for {
+		sbrkSync()
+		bl := bloc
+		if bl+n <= blocMax {
+			bloc += n
+			return unsafe.Pointer(bl)
+		}
 		grow := (bl + n - blocMax) / physPageSize
 		size := growMemory(int32(grow))
 		if size < 0 {
 			return nil
 		}
 		resetMemoryDataView()
+		if old := uintptr(size) * physPageSize; old != blocMax {
+			// (grown by C's threads meanwhile, on linux/wasm with cgo:
+			// what we grew starts at old; again, from there)
+			if bloc < blocMax {
+				memFree(unsafe.Pointer(bloc), blocMax-bloc)
+			}
+			bloc, blocMax = old, old+grow*physPageSize
+			continue
+		}
 		blocMax = bl + n
 	}
-	bloc += n
-	return unsafe.Pointer(bl)
 }
 
 // sbrkSync adopts what others have grown the memory by: on linux/wasm with

@@ -284,15 +284,27 @@ func sysReserveAlignedSbrk(size, align uintptr) (unsafe.Pointer, uintptr) {
 		}
 
 		// Round up bloc to align, then allocate size.
-		sbrkSync()
-		p = alignUp(bloc, align)
-		r := sbrk(p + size - bloc)
-		if r == nil {
-			p, size = 0, 0
-		} else if l := p - uintptr(r); l > 0 {
-			// Free the area we skipped over for alignment.
-			memFree(r, l)
-			memCheck()
+		for {
+			sbrkSync()
+			bl := bloc
+			p = alignUp(bloc, align)
+			r := sbrk(p + size - bl)
+			if r == nil {
+				p, size = 0, 0
+				break
+			}
+			if uintptr(r) != bl {
+				// (the break moved: others grew the memory meanwhile, on
+				// wasm; give it back, and again)
+				memFree(r, p+size-bl)
+				continue
+			}
+			if l := p - uintptr(r); l > 0 {
+				// Free the area we skipped over for alignment.
+				memFree(r, l)
+				memCheck()
+			}
+			break
 		}
 		unlock(&memlock)
 	})
