@@ -247,6 +247,7 @@ func sysReserveOS(v unsafe.Pointer, n uintptr, _ string) unsafe.Pointer {
 	var p uintptr
 	systemstack(func() {
 		lock(&memlock)
+		sbrkSync()
 		if uintptr(v) == bloc {
 			// Address hint is the current end of memory,
 			// so try to extend the address space.
@@ -283,6 +284,7 @@ func sysReserveAlignedSbrk(size, align uintptr) (unsafe.Pointer, uintptr) {
 		}
 
 		// Round up bloc to align, then allocate size.
+		sbrkSync()
 		p = alignUp(bloc, align)
 		r := sbrk(p + size - bloc)
 		if r == nil {

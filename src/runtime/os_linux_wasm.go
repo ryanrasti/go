@@ -48,6 +48,16 @@ type timespec64 struct {
 // pages, the kernel's limit.
 var wasmProcessArgs [256 << 10 / 4]uint32
 
+// wasmCgoInit starts the C side of a cgo program (docs/ports/cgo.md in
+// linux-workers): runtime/cgo's x_cgo_init starts libc, with the process's
+// arguments. From osinit: after blocMax is the memory's initial size, and
+// before the heap grows it (libc's break then starts past the runtime's).
+func wasmCgoInit() {
+	if _cgo_init != nil {
+		asmcgocall(_cgo_init, unsafe.Pointer(&wasmProcessArgs[0]))
+	}
+}
+
 // wasmArgs is rt0_go's args on linux/wasm: from the kernel's wasm_get_args.
 //
 //go:nosplit

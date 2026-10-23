@@ -6,6 +6,9 @@ package runtime
 
 import "unsafe"
 
+// sbrkSync is wasm's: Plan 9's break is the runtime's alone.
+func sbrkSync() {}
+
 func sbrk(n uintptr) unsafe.Pointer {
 	// Plan 9 sbrk from /sys/src/libc/9sys/sbrk.c
 	bl := bloc

@@ -271,3 +271,6 @@ func nanotime1() int64 {
 func sched_yield() errno
 
 func wasmDeliverSignals() {} // (linux/wasm: signals)
+
+// wasmCgoInit is linux/wasm's (no cgo here).
+func wasmCgoInit() {}

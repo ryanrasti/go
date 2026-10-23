@@ -16,6 +16,7 @@ func osinit() {
 	blocMax = uintptr(currentMemory()) * physPageSize // record the initial linear memory size
 	numCPUStartup = getCPUCount()
 	getg().m.procid = 2
+	wasmCgoInit()
 }
 
 func getCPUCount() int32 {

@@ -40,3 +40,6 @@ func readRandom(r []byte) int {
 func goenvs() {
 	goenvs_unix()
 }
+
+// wasmCgoInit is linux/wasm's (no cgo here).
+func wasmCgoInit() {}

@@ -1267,6 +1267,7 @@ const (
 	waitReasonSynctestSelect                          // "select (durable)"
 	waitReasonSynctestWaitGroupWait                   // "sync.WaitGroup.Wait (durable)"
 	waitReasonCleanupWait                             // "cleanup wait"
+	waitReasonCgoCallbackReturn                       // "cgo callback return" (wasm: see cgocall_wasm.go)
 )
 
 var waitReasonStrings = [...]string{
@@ -1317,6 +1318,7 @@ var waitReasonStrings = [...]string{
 	waitReasonSynctestSelect:        "select (durable)",
 	waitReasonSynctestWaitGroupWait: "sync.WaitGroup.Wait (durable)",
 	waitReasonCleanupWait:           "cleanup wait",
+	waitReasonCgoCallbackReturn:     "cgo callback return",
 }
 
 func (w waitReason) String() string {

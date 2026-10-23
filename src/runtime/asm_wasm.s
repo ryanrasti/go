@@ -290,8 +290,20 @@ TEXT runtime·morestack_noctxt(SB),NOSPLIT,$0
 	MOVD $0, CTXT
 	JMP runtime·morestack(SB)
 
-TEXT ·asmcgocall(SB), NOSPLIT, $0-0
-	UNDEF
+// func asmcgocall(fn, arg unsafe.Pointer) int32
+// linux/wasm's cgo (cgocall_wasm.go): fn is a C function (its table
+// index), called as int (*)(void *) (type 1, which cmd/link declares), on
+// C's own stack (its __stack_pointer: Go's SP isn't C's).
+TEXT ·asmcgocall(SB), NOSPLIT, $0-20
+	I64Load arg+8(FP)
+	I32WrapI64
+	I64Load fn+0(FP)
+	I32WrapI64
+	CallIndirect $1
+	I64ExtendI32S
+	Set R0
+	MOVW R0, ret+16(FP)
+	RET
 
 #define DISPATCH(NAME, MAXSIZE) \
 	Get R0; \
