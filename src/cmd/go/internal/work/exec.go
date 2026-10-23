@@ -2441,8 +2441,10 @@ func (b *Builder) compilerCmd(compiler []string, incdir, workdir string) []strin
 	a := append(compiler, "-I", incdir)
 
 	// Definitely want -fPIC but on Windows gcc complains
-	// "-fPIC ignored for target (all code is position independent)"
-	if cfg.Goos != "windows" {
+	// "-fPIC ignored for target (all code is position independent)".
+	// (linux/wasm's C is linked statically into the module: on wasm32,
+	// -fPIC is dynamic linking's, its addresses relative to __memory_base.)
+	if cfg.Goos != "windows" && cfg.Goarch != "wasm" {
 		a = append(a, "-fPIC")
 	}
 	a = append(a, b.gccArchArgs()...)
