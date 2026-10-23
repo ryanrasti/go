@@ -502,6 +502,10 @@ func unwindm(restore *bool) {
 	if *restore && GOARCH == "wasm" {
 		// (the C frames are on the wasm stack, which Go can't unwind
 		// past: see cgocall_wasm.go)
+		if p := getg()._panic; p != nil {
+			printpanics(p)
+			print("\n")
+		}
 		throw("panic out of a cgo callback: Go can't unwind C's frames on wasm")
 	}
 	if *restore {

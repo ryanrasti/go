@@ -4,7 +4,10 @@
 
 package runtime
 
-import "unsafe"
+import (
+	"internal/runtime/sys"
+	"unsafe"
+)
 
 // cgo on linux/wasm (linux-workers: docs/ports/cgo.md). C is linked into
 // the program's module (cmd/link), with a stack of its own in the memory
@@ -61,6 +64,10 @@ func cgoWasmCallbackExit(gp *g) {
 	}
 }
 
+// cgoWasmCallbackRoom is what cgoWasmCallback's nosplit chain needs of the
+// goroutine's stack (cgocallbackg's, exitsyscall's), with room to spare.
+const cgoWasmCallbackRoom = 512
+
 // cgoWasmCallback is crosscall2's (runtime/cgo): a call from C into Go's
 // fn (a function pointer: its table index), with its argument frame (in
 // C's stack).
@@ -73,6 +80,13 @@ func cgoWasmCallback(fn, frame, ctxt uintptr) {
 		// (from a C constructor, run before the runtime starts, or from
 		// a signal handler of C's: no goroutine to run it on)
 		writeErrStr("fatal error: cgo callback outside of a call to C\n")
+		exit(2)
+	}
+	// The callback's frames are below the cgocall's on the goroutine's
+	// stack, which can't grow until cgocallbackg leaves the system call:
+	// its nosplit chain needs room (cgocall's caller left StackGuard's).
+	if sys.GetCallerSP() < gp.stack.lo+cgoWasmCallbackRoom {
+		writeErrStr("fatal error: cgo callback: too little goroutine stack left\n")
 		exit(2)
 	}
 	cgocallbackg(unsafe.Pointer(fn<<16), unsafe.Pointer(frame), ctxt)
