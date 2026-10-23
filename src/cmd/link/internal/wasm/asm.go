@@ -505,7 +505,7 @@ func writeGlobalSec(ctxt *ld.Link, ldr *loader.Loader) {
 
 	n := len(globalRegs)
 	if cgo != nil {
-		n += 1 + len(cgo.globals) // C's stack pointer (cgoGlobalSP), C's
+		n += cgoGlobalC - len(globalRegs) + len(cgo.globals) // C's stack pointer (cgoGlobalSP), TLS's, C's
 	}
 	writeUleb128(ctxt.Out, uint64(n)) // number of globals
 
@@ -526,6 +526,15 @@ func writeGlobalSec(ctxt *ld.Link, ldr *loader.Loader) {
 		ctxt.Out.WriteByte(0x01) // var
 		writeI32Const(ctxt.Out, int32(ldr.SymValue(cgo.stack)+cgoStackSize))
 		ctxt.Out.WriteByte(0x0b) // end
+		for _, g := range []struct {
+			mut byte
+			v   int32
+		}{{0x01, 0}, {0x00, 0}, {0x00, 1}} { // __tls_base, __tls_size, __tls_align
+			ctxt.Out.WriteByte(I32)
+			ctxt.Out.WriteByte(g.mut)
+			writeI32Const(ctxt.Out, g.v)
+			ctxt.Out.WriteByte(0x0b) // end
+		}
 		for _, g := range cgo.globals {
 			ctxt.Out.WriteByte(g.ValType)
 			if g.Mutable {

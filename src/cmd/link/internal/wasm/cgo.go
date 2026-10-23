@@ -112,7 +112,16 @@ type cgoRes struct {
 var cgo *cgoLink
 
 // cgoGlobalSP is C's stack pointer: after Go's globals (writeGlobalSec).
-const cgoGlobalSP = 8
+// Then thread-local storage's, which musl's clone and pthread_create use
+// (posix_spawn's vfork child): there's none (load refuses its segments),
+// so __tls_base 0, __tls_size 0 and __tls_align 1. Then C's own globals.
+const (
+	cgoGlobalSP       = 8
+	cgoGlobalTLS      = 9
+	cgoGlobalTLSSize  = 10
+	cgoGlobalTLSAlign = 11
+	cgoGlobalC        = 12
+)
 
 func linkWasmHostObjs(ctxt *ld.Link, ldr *loader.Loader, objs []ld.WasmHostObj, ldflags []string) {
 	b, err := cgoPrelink(ctxt, objs, ldflags)
@@ -271,6 +280,12 @@ func (c *cgoLink) load(ctxt *ld.Link, ldr *loader.Loader) error {
 				break
 			}
 			t := f.Types[f.FuncImport(s.Index).Type]
+			if s.Name == "__wasm_init_tls" {
+				// (no thread-local storage to initialize)
+				r.kind, r.k = resExtra, uint32(len(c.extra))
+				c.extra = append(c.extra, &cgoExtra{name: s.Name, typ: t})
+				break
+			}
 			if s.Name == "__wasm_call_ctors" {
 				if ctors == nil {
 					ctors = &cgoExtra{name: s.Name, typ: t}
@@ -300,7 +315,7 @@ func (c *cgoLink) load(ctxt *ld.Link, ldr *loader.Loader) error {
 				r.kind, r.k = resExtra, j
 				break
 			}
-			return fmt.Errorf("undefined: %s (a C function, referenced from C)", s.Name)
+			return fmt.Errorf("undefined: %s (a C function, referenced from C: %s)", s.Name, c.referrers(uint32(i)))
 		case wasmobj.SymData:
 			if !s.Undefined() {
 				if int(s.Segment) >= len(c.segs) {
@@ -318,17 +333,25 @@ func (c *cgoLink) load(ctxt *ld.Link, ldr *loader.Loader) error {
 					r.kind = resZero
 					break
 				}
-				return fmt.Errorf("undefined: %s (C data, referenced from C)", s.Name)
+				return fmt.Errorf("undefined: %s (C data, referenced from C: %s)", s.Name, c.referrers(uint32(i)))
 			}
 		case wasmobj.SymGlobal:
 			if s.Undefined() {
-				if s.Name != "__stack_pointer" {
-					return fmt.Errorf("undefined: %s (a global, referenced from C)", s.Name)
+				switch s.Name {
+				case "__stack_pointer":
+					r.kind, r.k = resGlobal, cgoGlobalSP
+				case "__tls_base":
+					r.kind, r.k = resGlobal, cgoGlobalTLS
+				case "__tls_size":
+					r.kind, r.k = resGlobal, cgoGlobalTLSSize
+				case "__tls_align":
+					r.kind, r.k = resGlobal, cgoGlobalTLSAlign
+				default:
+					return fmt.Errorf("undefined: %s (a global, referenced from C: %s)", s.Name, c.referrers(uint32(i)))
 				}
-				r.kind, r.k = resGlobal, cgoGlobalSP
 				break
 			}
-			r.kind, r.k = resGlobal, cgoGlobalSP+1+s.Index-uint32(f.NumGlobalImports)
+			r.kind, r.k = resGlobal, cgoGlobalC+s.Index-uint32(f.NumGlobalImports)
 		case wasmobj.SymTag:
 			if s.Undefined() {
 				// (setjmp's __c_longjmp, C++'s __cpp_exception: the
@@ -659,6 +682,30 @@ func (c *cgoLink) checkGoCall(ldr *loader.Loader, g loader.Sym, k uint32, want w
 	return nil
 }
 
+// referrers names the C functions whose code refers to symbol i (for
+// errors).
+func (c *cgoLink) referrers(i uint32) string {
+	f := c.f
+	var names []string
+	seen := map[int]bool{}
+	for _, rel := range f.CodeRelocs() {
+		if rel.Index != i || rel.Type == wasmobj.R_TYPE_INDEX_LEB {
+			continue
+		}
+		k := sort.Search(len(f.Funcs), func(k int) bool {
+			return f.Funcs[k].Off+uint32(len(f.Funcs[k].Body)) > rel.Offset
+		})
+		if k < len(f.Funcs) && !seen[k] {
+			seen[k] = true
+			names = append(names, c.funcName(uint32(k)))
+		}
+	}
+	if len(names) > 5 {
+		names = append(names[:5], "...")
+	}
+	return strings.Join(names, ", ")
+}
+
 func (c *cgoLink) funcName(k uint32) string {
 	for i := range c.f.Symbols {
 		s := &c.f.Symbols[i]
@@ -768,7 +815,7 @@ func (c *cgoLink) extraBody(e *cgoExtra, idx funcIndexer) []byte {
 				ld.Exitf("cgo: constructor %s isn't a C function", c.f.Symbols[s].Name)
 			}
 		}
-	} else {
+	} else if e.name != "__wasm_init_tls" {
 		b.WriteByte(0x00) // unreachable
 	}
 	b.WriteByte(0x0b) // end

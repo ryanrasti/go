@@ -430,7 +430,8 @@ func (ctxt *Link) addexport() {
 	}
 
 	// TODO(aix)
-	if ctxt.HeadType == objabi.Hdarwin || ctxt.HeadType == objabi.Haix {
+	// (wasm: no dynamic symbols; cgo's exports are C's to call, cgo.go)
+	if ctxt.HeadType == objabi.Hdarwin || ctxt.HeadType == objabi.Haix || ctxt.IsWasm() {
 		return
 	}
 
