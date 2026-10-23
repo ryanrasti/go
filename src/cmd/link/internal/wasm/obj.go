@@ -20,6 +20,8 @@ func Init() (*sys.Arch, ld.Arch) {
 		Asmb:          asmb,
 		Asmb2:         asmb2,
 		Gentext:       gentext,
+
+		LinkWasmHostObjs: linkWasmHostObjs,
 	}
 
 	return sys.ArchWasm, theArch

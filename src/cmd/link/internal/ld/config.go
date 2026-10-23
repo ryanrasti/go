@@ -205,7 +205,11 @@ func determineLinkMode(ctxt *Link) {
 			if preferExternal && ctxt.Debugvlog > 0 {
 				ctxt.Logf("external linking prefer list is %v\n", preferlinkext)
 			}
-			if extNeeded || (iscgo && (externalobj || preferExternal)) {
+			if buildcfg.GOARCH == "wasm" {
+				// (no external linker writes Go's wasm: cgo's C is
+				// linked in internally, cmd/link/internal/wasm/cgo.go)
+				ctxt.LinkMode = LinkInternal
+			} else if extNeeded || (iscgo && (externalobj || preferExternal)) {
 				ctxt.LinkMode = LinkExternal
 			} else {
 				ctxt.LinkMode = LinkInternal
@@ -222,6 +226,8 @@ func determineLinkMode(ctxt *Link) {
 		switch {
 		case buildcfg.GOARCH == "ppc64" && buildcfg.GOOS == "linux":
 			Exitf("external linking not supported for %s/ppc64", buildcfg.GOOS)
+		case buildcfg.GOARCH == "wasm":
+			Exitf("external linking not supported for %s/wasm", buildcfg.GOOS)
 		}
 	}
 }

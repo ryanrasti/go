@@ -116,6 +116,9 @@ func (d *deadcodePass) init() {
 		}
 		d.mark(s, 0)
 	}
+	for _, s := range d.ctxt.WasmHostRoots {
+		d.mark(s, 0)
+	}
 	// So are wasmexports.
 	for _, s := range d.ldr.WasmExports {
 		if d.ctxt.Debugvlog > 1 {

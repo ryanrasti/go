@@ -249,6 +249,10 @@ type Arch struct {
 	PEreloc1       func(*sys.Arch, *OutBuf, *loader.Loader, loader.Sym, loader.ExtReloc, int64) bool
 	Xcoffreloc1    func(*sys.Arch, *OutBuf, *loader.Loader, loader.Sym, loader.ExtReloc, int64) bool
 
+	// LinkWasmHostObjs links linux/wasm's host objects (cgo's C,
+	// relocatable wasm32 objects): see cmd/link/internal/wasm/cgo.go.
+	LinkWasmHostObjs func(ctxt *Link, ldr *loader.Loader, objs []WasmHostObj, ldflags []string)
+
 	// Generate additional symbols for the native symbol table just prior to
 	// code generation.
 	GenSymsLate func(*Link, *loader.Loader)
@@ -496,6 +500,12 @@ func (ctxt *Link) extld() []string {
 	return flagExtld
 }
 
+// Extld is the external linker's command (the C compiler).
+func (ctxt *Link) Extld() []string { return ctxt.extld() }
+
+// ExtldFlags are -extldflags.
+func ExtldFlags() []string { return flagExtldflags }
+
 // findLibPathCmd uses cmd command to find gcc library libname.
 // It returns library full path if found, or "none" if not found.
 func (ctxt *Link) findLibPathCmd(cmd, libname string) string {
@@ -620,8 +630,11 @@ func (ctxt *Link) loadlib() {
 	// Conditionally load host objects, or setup for external linking.
 	hostobjs(ctxt)
 	hostlinksetup(ctxt)
+	if len(wasmHostObjs) != 0 {
+		thearch.LinkWasmHostObjs(ctxt, ctxt.loader, wasmHostObjs, ldflag)
+	}
 
-	if ctxt.LinkMode == LinkInternal && len(hostobj) != 0 {
+	if ctxt.LinkMode == LinkInternal && len(hostobj) != 0 && !ctxt.IsWasm() {
 		// If we have any undefined symbols in external
 		// objects, try to read them from the libgcc file.
 		any := false
@@ -1224,6 +1237,15 @@ func ldhostobj(ld func(*Link, *bio.Reader, string, int64, string), headType obja
 	h.length = length
 	return h
 }
+
+// WasmHostObj is a host object of linux/wasm's: a wasm32 relocatable
+// object, from a package's archive.
+type WasmHostObj struct {
+	Pn   string
+	Data []byte
+}
+
+var wasmHostObjs []WasmHostObj
 
 func hostobjs(ctxt *Link) {
 	if ctxt.LinkMode != LinkInternal {
@@ -2398,6 +2420,18 @@ func ldobj(ctxt *Link, f *bio.Reader, lib *sym.Library, length int64, pn string,
 			ctxt.Textp = append(ctxt.Textp, ls.Textp...)
 		}
 		return ldhostobj(ldpe, ctxt.HeadType, f, pkg, length, pn, file)
+	}
+
+	if magic == 0x0061736d && ctxt.IsWasm() { // \0asm: linux/wasm's C
+		ldwasm := func(ctxt *Link, f *bio.Reader, pkg string, length int64, pn string) {
+			b := make([]byte, length)
+			if _, err := io.ReadFull(f, b); err != nil {
+				Errorf("%s: %v", pn, err)
+				return
+			}
+			wasmHostObjs = append(wasmHostObjs, WasmHostObj{Pn: pn, Data: b})
+		}
+		return ldhostobj(ldwasm, ctxt.HeadType, f, pkg, length, pn, file)
 	}
 
 	if c1 == 0x01 && (c2 == 0xD7 || c2 == 0xF7) {

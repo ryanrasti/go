@@ -9,6 +9,7 @@ import (
 	"cmd/internal/obj"
 	"cmd/internal/obj/wasm"
 	"cmd/internal/objabi"
+	"cmd/internal/wasmobj"
 	"cmd/link/internal/ld"
 	"cmd/link/internal/loader"
 	"cmd/link/internal/sym"
@@ -40,7 +41,10 @@ const (
 	sectionCode      = 10
 	sectionData      = 11
 	sectionDataCount = 12
+	sectionTag       = 13
 )
+
+const wasmPageSize = 64 << 10 // 64KB
 
 // funcValueOffset is the offset between the PC_F value of a function and the index of the function in WebAssembly
 const funcValueOffset = 0x1000 // TODO(neelance): make function addresses play nice with heap addresses
@@ -136,6 +140,10 @@ func asmb(ctxt *ld.Link, ldr *loader.Loader) {
 		ldr.SymSect(ldr.Lookup("runtime.data", 0)),
 	}
 
+	if cgo != nil {
+		cgo.setValues(ctxt, ldr)
+	}
+
 	dataSects = make([]wasmDataSect, len(sections))
 	for i, sect := range sections {
 		data := ld.DatblkBytes(ctxt, int64(sect.Vaddr), int64(sect.Length))
@@ -152,6 +160,9 @@ func asmb2(ctxt *ld.Link, ldr *loader.Loader) {
 		// 0 if the function returned normally or
 		// 1 if the stack needs to be unwound.
 		{Params: []byte{I32}, Results: []byte{I32}},
+		// For the runtime's calls into C (linux/wasm's cgo: asmcgocall's
+		// CallIndirect $1), int (*)(void *); the same, as it happens.
+		cgoType,
 	}
 
 	// collect host imports (functions that get imported from the WebAssembly host, usually JavaScript)
@@ -180,6 +191,26 @@ func asmb2(ctxt *ld.Link, ldr *loader.Loader) {
 					panic(fmt.Sprintf("missing wasm symbol for %s", ldr.SymName(r.Sym())))
 				}
 			}
+		}
+	}
+
+	// C's imports (cgo.go), after Go's: one for each, as Go may import the
+	// same (linux.syscall)
+	var cgoImportIdx []uint32
+	if cgo != nil {
+		for _, ci := range cgo.imports {
+			typ := lookupType(&wasmFuncType{Params: ci.typ.Params, Results: ci.typ.Results}, &types)
+			idx := -1
+			for i, h := range hostImports {
+				if h.Module == ci.module && h.Name == ci.name && h.Type == typ {
+					idx = i
+				}
+			}
+			if idx < 0 {
+				idx = len(hostImports)
+				hostImports = append(hostImports, &wasmFunc{Module: ci.module, Name: ci.name, Type: typ})
+			}
+			cgoImportIdx = append(cgoImportIdx, uint32(idx))
 		}
 	}
 
@@ -239,6 +270,31 @@ func asmb2(ctxt *ld.Link, ldr *loader.Loader) {
 		fns[i] = &wasmFunc{Name: name, Type: typ, Code: wfn.Bytes()}
 	}
 
+	// C's functions (cgo.go), then the linker's for C
+	if cgo != nil {
+		nGo, nC := uint32(len(fns)), uint32(len(cgo.f.Funcs))
+		base := uint32(len(hostImports))
+		idx := funcIndexer{
+			cfunc:  func(k uint32) uint32 { return base + nGo + k },
+			cimp:   func(j uint32) uint32 { return cgoImportIdx[j] },
+			extra:  func(j uint32) uint32 { return base + nGo + nC + j },
+			gofunc: func(s loader.Sym) uint32 { return base + uint32(ldr.SymValue(s)>>16) - funcValueOffset },
+		}
+		typeIdx := func(t wasmobj.FuncType) uint32 {
+			return lookupType(&wasmFuncType{Params: t.Params, Results: t.Results}, &types)
+		}
+		for k := range cgo.f.Funcs {
+			body, err := cgo.relocate(ldr, uint32(k), idx, typeIdx)
+			if err != nil {
+				ld.Exitf("cgo: %v", err)
+			}
+			fns = append(fns, &wasmFunc{Name: nameRegexp.ReplaceAllString(cgo.funcName(uint32(k)), "_"), Type: typeIdx(cgo.f.Types[cgo.f.Funcs[k].Type]), Code: body})
+		}
+		for _, e := range cgo.extra {
+			fns = append(fns, &wasmFunc{Name: e.name, Type: typeIdx(e.typ), Code: cgo.extraBody(e, idx)})
+		}
+	}
+
 	segments := dataSegments()
 	startIdx := -1 // linux: _start's function index
 	if buildcfg.GOOS == "linux" {
@@ -261,7 +317,13 @@ func asmb2(ctxt *ld.Link, ldr *loader.Loader) {
 	if buildcfg.GOOS != "linux" { // (linux: imported)
 		writeMemorySec(ctxt, ldr)
 	}
-	writeGlobalSec(ctxt)
+	if cgo != nil && len(cgo.tags) > 0 {
+		writeTagSec(ctxt, cgo.tags, func(t uint32) uint32 {
+			ft := cgo.f.Types[t]
+			return lookupType(&wasmFuncType{Params: ft.Params, Results: ft.Results}, &types)
+		})
+	}
+	writeGlobalSec(ctxt, ldr)
 	writeExportSec(ctxt, ldr, len(hostImports), startIdx)
 	writeElementSec(ctxt, uint64(len(hostImports)), uint64(len(fns)))
 	if buildcfg.GOOS == "linux" {
@@ -411,12 +473,23 @@ func initialMemoryPages(ldr *loader.Loader) uint64 {
 	dataEnd := uint64(ldr.SymValue(ldr.Lookup("runtime.end", 0)))
 	var initialSize = dataEnd + 1<<20 // 1 MB, for runtime init allocating a few pages
 
-	const wasmPageSize = 64 << 10 // 64KB
 	return initialSize / wasmPageSize
 }
 
+// writeTagSec writes the section that declares exception tags: C's
+// (setjmp/longjmp's), of their types.
+func writeTagSec(ctxt *ld.Link, tags []uint32, typeIdx func(uint32) uint32) {
+	sizeOffset := writeSecHeader(ctxt, sectionTag)
+	writeUleb128(ctxt.Out, uint64(len(tags)))
+	for _, t := range tags {
+		ctxt.Out.WriteByte(0x00) // attribute: exception
+		writeUleb128(ctxt.Out, uint64(typeIdx(t)))
+	}
+	writeSecSize(ctxt, sizeOffset)
+}
+
 // writeGlobalSec writes the section that declares global variables.
-func writeGlobalSec(ctxt *ld.Link) {
+func writeGlobalSec(ctxt *ld.Link, ldr *loader.Loader) {
 	sizeOffset := writeSecHeader(ctxt, sectionGlobal)
 
 	globalRegs := []byte{
@@ -430,7 +503,11 @@ func writeGlobalSec(ctxt *ld.Link) {
 		I32, // 7: PAUSE
 	}
 
-	writeUleb128(ctxt.Out, uint64(len(globalRegs))) // number of globals
+	n := len(globalRegs)
+	if cgo != nil {
+		n += 1 + len(cgo.globals) // C's stack pointer (cgoGlobalSP), C's
+	}
+	writeUleb128(ctxt.Out, uint64(n)) // number of globals
 
 	for _, typ := range globalRegs {
 		ctxt.Out.WriteByte(typ)
@@ -442,6 +519,22 @@ func writeGlobalSec(ctxt *ld.Link) {
 			writeI64Const(ctxt.Out, 0)
 		}
 		ctxt.Out.WriteByte(0x0b) // end
+	}
+	if cgo != nil {
+		// C's stack pointer: its stack's top
+		ctxt.Out.WriteByte(I32)
+		ctxt.Out.WriteByte(0x01) // var
+		writeI32Const(ctxt.Out, int32(ldr.SymValue(cgo.stack)+cgoStackSize))
+		ctxt.Out.WriteByte(0x0b) // end
+		for _, g := range cgo.globals {
+			ctxt.Out.WriteByte(g.ValType)
+			if g.Mutable {
+				ctxt.Out.WriteByte(0x01)
+			} else {
+				ctxt.Out.WriteByte(0x00)
+			}
+			ctxt.Out.Write(g.Init)
+		}
 	}
 
 	writeSecSize(ctxt, sizeOffset)

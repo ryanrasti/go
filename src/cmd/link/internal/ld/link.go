@@ -110,6 +110,10 @@ type Link struct {
 	datap  []loader.Sym
 	dynexp []loader.Sym
 
+	// WasmHostRoots are deadcode's roots for what linux/wasm's host
+	// objects define and use (LinkWasmHostObjs).
+	WasmHostRoots []loader.Sym
+
 	// Elf symtab variables.
 	numelfsym int // starts at 0, 1 is reserved
 
