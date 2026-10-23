@@ -2720,7 +2720,8 @@ func (c *typeConv) loadType(dtype dwarf.Type, pos token.Pos, parent string) *Typ
 
 	case *dwarf.PtrType:
 		// Clang doesn't emit DW_AT_byte_size for pointer types.
-		if t.Size != c.ptrSize && t.Size != -1 {
+		// (On linux/wasm it does: 4, C's; Go's are 8, see ptr32.)
+		if t.Size != c.ptrSize && t.Size != -1 && !(goarch == "wasm" && t.Size == 4) {
 			fatalf("%s: unexpected: %d-byte pointer type - %s", lineno(pos), t.Size, dtype)
 		}
 		t.Size = c.ptrSize
