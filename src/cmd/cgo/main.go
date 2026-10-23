@@ -218,6 +218,7 @@ var ptrSizeMap = map[string]int64{
 	"ppc64le":  8,
 	"riscv":    4,
 	"riscv64":  8,
+	"wasm":     8, // Go's; C's are 4 (linux/wasm: see ptr32, goSlot)
 	"s390":     4,
 	"s390x":    8,
 	"sh":       4,
@@ -244,6 +245,7 @@ var intSizeMap = map[string]int64{
 	"ppc64le":  8,
 	"riscv":    4,
 	"riscv64":  8,
+	"wasm":     8, // Go's; C's are 4 (linux/wasm: see ptr32, goSlot)
 	"s390":     4,
 	"s390x":    8,
 	"sh":       4,
@@ -528,6 +530,9 @@ func newPackage(args []string) *Package {
 	intSize := intSizeMap[goarch]
 	if intSize == 0 {
 		fatalf("unknown intSize for $GOARCH %q", goarch)
+	}
+	if goarch == "wasm" {
+		wasmPrologs()
 	}
 
 	// Reset locale variables so gcc emits English errors [sic].

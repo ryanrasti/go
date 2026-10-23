@@ -32,6 +32,7 @@ import (
 	"unicode/utf8"
 
 	"cmd/internal/quoted"
+	"cmd/internal/wasmobj"
 )
 
 var debugDefine = flag.Bool("debug-define", false, "print relevant #defines")
@@ -2075,6 +2076,61 @@ func (p *Package) gccDebug(stdin []byte, nnames int) (d *dwarf.Data, ints []int6
 		return d, ints, floats, strs
 	}
 
+	// linux/wasm: a wasm32 relocatable object (the DWARF is in custom
+	// sections, which clang writes with relocations already applied)
+	if b, err := os.ReadFile(ofile); err == nil && wasmobj.IsObject(b) {
+		f, err := wasmobj.Read(b)
+		if err != nil {
+			fatalf("%s: %v", ofile, err)
+		}
+		sec := func(name string) []byte { return f.Custom(".debug_" + name) }
+		d, err := dwarf.New(sec("abbrev"), sec("aranges"), sec("frame"), sec("info"), sec("line"), sec("pubnames"), sec("ranges"), sec("str"))
+		if err != nil {
+			fatalf("cannot load DWARF output from %s: %v", ofile, err)
+		}
+		for _, name := range []string{"addr", "line_str", "loclists", "rnglists", "str_offsets"} {
+			if b := sec(name); b != nil {
+				if err := d.AddSection(".debug_"+name, b); err != nil {
+					fatalf("cannot load DWARF output from %s: %v", ofile, err)
+				}
+			}
+		}
+		bo := binary.LittleEndian
+		for i := range f.Symbols {
+			s := &f.Symbols[i]
+			if s.Kind != wasmobj.SymData || s.Undefined() {
+				continue
+			}
+			data := f.DataSymbol(s.Name)
+			switch {
+			case isDebugInts(s.Name):
+				ints = make([]int64, len(data)/8)
+				for i := range ints {
+					ints[i] = int64(bo.Uint64(data[i*8:]))
+				}
+			case isDebugFloats(s.Name):
+				floats = make([]float64, len(data)/8)
+				for i := range floats {
+					floats[i] = math.Float64frombits(bo.Uint64(data[i*8:]))
+				}
+			default:
+				if n := indexOfDebugStr(s.Name); n != -1 {
+					strdata[n] = string(data)
+					break
+				}
+				if n := indexOfDebugStrlen(s.Name); n != -1 && len(data) >= 8 {
+					strlen := bo.Uint64(data[:8])
+					if strlen > (1<<(uint(p.IntSize*8)-1) - 1) { // greater than MaxInt?
+						fatalf("string literal too big")
+					}
+					strlens[n] = int(strlen)
+				}
+			}
+		}
+		buildStrings()
+		return d, ints, floats, strs
+	}
+
 	if f, err := pe.Open(ofile); err == nil {
 		defer f.Close()
 		d, err := f.DWARF()
@@ -2390,6 +2446,24 @@ func base(dt dwarf.Type) dwarf.Type {
 	return dt
 }
 
+// ptr32 reports whether dt is a C pointer that's narrower in C than in Go:
+// linux/wasm's (4 bytes in C, wasm32's; 8 in Go). In memory, in a struct's
+// field or an array's element, it's a 32-bit word (ptr32Type), which Go
+// code converts (unsafe.Pointer(uintptr(w))); as a function's parameter or
+// result it's a Go pointer, which cgo's wrappers convert.
+func (c *typeConv) ptr32(dt dwarf.Type) bool {
+	if goarch != "wasm" {
+		return false
+	}
+	_, ok := base(dt).(*dwarf.PtrType)
+	return ok
+}
+
+// ptr32Type is t (a pointer type) as a 32-bit word in memory.
+func (c *typeConv) ptr32Type(t *Type) *Type {
+	return &Type{Size: 4, Align: 4, C: t.C, Go: c.uint32, Typedef: t.Typedef}
+}
+
 // unqual strips away qualifiers from a DWARF type.
 // In general we don't care about top-level qualifiers.
 func unqual(dt dwarf.Type) dwarf.Type {
@@ -2526,6 +2600,9 @@ func (c *typeConv) loadType(dtype dwarf.Type, pos token.Pos, parent string) *Typ
 			count = 0
 		}
 		sub := c.Type(dt.Type, pos)
+		if c.ptr32(dt.Type) {
+			sub = c.ptr32Type(sub)
+		}
 		t.Align = sub.Align
 		t.Go = &ast.ArrayType{
 			Len: c.intExpr(count),
@@ -3135,6 +3212,9 @@ func (c *typeConv) Struct(dt *dwarf.StructType, pos token.Pos) (expr *ast.Struct
 		// promoting the fields of the inner struct.
 
 		t := c.Type(ft, pos)
+		if c.ptr32(ft) {
+			t = c.ptr32Type(t)
+		}
 		tgo := t.Go
 		size := t.Size
 		talign := t.Align
