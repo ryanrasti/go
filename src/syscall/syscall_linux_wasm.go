@@ -13,7 +13,6 @@ package syscall
 
 import (
 	runtimesyscall "internal/runtime/syscall/linux"
-	"sync"
 	"sync/atomic"
 	"unsafe"
 )
@@ -250,48 +249,25 @@ func Pause() error {
 	return err
 }
 
-// mmap: the kernel can't map pages into the process's memory (as musl's
-// does too, in its wasm32 port): the mapping is memory of ours, a copy of
-// the file's, for private mappings; shared ones' writes aren't written back.
-var wasmMaps struct {
-	sync.Mutex
-	m map[uintptr][]byte
-}
-
+// mmap: the kernel's (exobox's mm.c), as on other Linux: a copy in the
+// process's memory, its file's bytes read in, a writable shared mapping's
+// changes written back.
 func mmap(addr uintptr, length uintptr, prot int, flags int, fd int, offset int64) (uintptr, error) {
-	if length == 0 || flags&MAP_FIXED != 0 {
+	if offset&4095 != 0 {
 		return 0, EINVAL
 	}
-	b := make([]byte, length)
-	if flags&MAP_ANONYMOUS == 0 {
-		for n := 0; n < len(b); {
-			m, err := pread(fd, b[n:], offset+int64(n))
-			if err != nil {
-				return 0, err
-			}
-			if m == 0 {
-				break
-			}
-			n += m
-		}
+	r, _, e := Syscall6(SYS_MMAP2, addr, length, uintptr(prot), uintptr(flags), uintptr(fd), uintptr(offset/4096))
+	if e != 0 {
+		return 0, e
 	}
-	p := uintptr(unsafe.Pointer(&b[0]))
-	wasmMaps.Lock()
-	if wasmMaps.m == nil {
-		wasmMaps.m = make(map[uintptr][]byte)
-	}
-	wasmMaps.m[p] = b
-	wasmMaps.Unlock()
-	return p, nil
+	return r, nil
 }
 
 func munmap(addr uintptr, length uintptr) error {
-	wasmMaps.Lock()
-	defer wasmMaps.Unlock()
-	if _, ok := wasmMaps.m[addr]; !ok {
-		return EINVAL
+	_, _, e := Syscall(SYS_MUNMAP, addr, length, 0)
+	if e != 0 {
+		return e
 	}
-	delete(wasmMaps.m, addr)
 	return nil
 }
 
