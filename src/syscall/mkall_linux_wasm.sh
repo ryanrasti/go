@@ -34,7 +34,21 @@ chmod +x "$shim/gcc"
 # GOARCH=riscv: cgo's 32-bit view of the C types (cgo knows it for gccgo)
 export PATH="$shim:$PATH" CC="$shim/gcc" GOOS=linux GOARCH=riscv
 
-perl mksysnum_linux.pl "$SYSROOT_INCLUDE/bits/syscall.h" > zsysnum_linux_wasm.go
+# musl's numbers, as the 32-bit ABI names them: its header gives the *64
+# calls (fcntl64, _llseek, ...) as aliases of asm-generic's __NR3264_
+# numbers, which mksysnum_linux.pl would name by their 64-bit names, so
+# the numbers are resolved first, by a program printing them
+names=$(sed -n 's/^#define \(__NR_[a-z0-9_]*\) .*/\1/p' "$SYSROOT_INCLUDE/bits/syscall.h" | grep -vx __NR_syscalls)
+{
+	echo "#include <stdio.h>"
+	echo "#include \"$SYSROOT_INCLUDE/bits/syscall.h\""
+	echo "int main(void) {"
+	for n in $names; do echo "printf(\"#define $n %d\\n\", $n);"; done
+	echo "return 0; }"
+} > "$shim/sysnum.c"
+"${HOSTCC:-cc}" -o "$shim/sysnum" "$shim/sysnum.c"
+"$shim/sysnum" > "$shim/syscall.h"
+perl mksysnum_linux.pl "$shim/syscall.h" | sed "1s|$shim/syscall.h|bits/syscall.h (musl's, resolved: mkall_linux_wasm.sh)|" > zsysnum_linux_wasm.go
 ./mkerrors.sh | sed 's/^\/\/go:build riscv && linux$/\/\/go:build wasm \&\& linux/' > zerrors_linux_wasm.go
 # (glibc's types in types_linux.go's ustat: defined in the shim, for musl)
 go tool cgo -godefs types_linux.go | GOOS= GOARCH= go run mkpost.go > ztypes_linux_wasm.go
@@ -47,8 +61,9 @@ grep -q 'Sec  int32' ztypes_linux_wasm.go
 sed -i 's/^type PtraceRegs _cgopackage.Incomplete$/type PtraceRegs struct{}/' ztypes_linux_wasm.go
 gofmt -w zerrors_linux_wasm.go zsysnum_linux_wasm.go ztypes_linux_wasm.go
 # (syscall_linux.go's calls that linux/wasm has its own of, in
-# syscall_linux_wasm.go: munmap; and those its ABI lacks, 32-bit time's)
-grep -Ev '^//sys(nb)?	(munmap|wait4|Adjtimex|Settimeofday)\(' syscall_linux.go > "$shim/syscall_linux.go"
+# syscall_linux_wasm.go: munmap; and 32-bit time's, made as musl makes
+# them, with the 64-bit time calls, as our Timespec and Timeval are)
+grep -Ev '^//sys(nb)?	(munmap|wait4|Adjtimex|Settimeofday|utimensat)\(' syscall_linux.go > "$shim/syscall_linux.go"
 (cd "$shim" && GOOS= GOARCH= perl "$OLDPWD/mksyscall.pl" -l32 -tags linux,wasm syscall_linux.go "$OLDPWD/syscall_linux_wasm.go") |
 	sed "s| $shim/| |; s| $PWD/| |" > zsyscall_linux_wasm.go
 gofmt -w zsyscall_linux_wasm.go

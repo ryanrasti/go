@@ -23,9 +23,8 @@ const (
 	_SYS_faccessat2 = 439
 	_SYS_fchmodat2  = 452
 
-	// the generic code's names for the 32-bit ABI's calls
-	SYS_FCNTL     = SYS_FCNTL64
-	SYS_UTIMENSAT = SYS_UTIMENSAT_TIME64
+	// the generic code's name for the 32-bit ABI's call
+	SYS_FCNTL = SYS_FCNTL64
 )
 
 //sys	EpollWait(epfd int, events []EpollEvent, msec int) (n int, err error) = SYS_EPOLL_PWAIT
@@ -48,8 +47,9 @@ const (
 //sys	Splice(rfd int, roff *int64, wfd int, woff *int64, len int, flags int) (n int64, err error)
 //sys	statx(dirfd int, path string, flags int, mask int, stat *statx_t) (err error)
 //sys	statfs64(path string, size int, buf *Statfs_t) (err error) = SYS_STATFS64
-//sys	SyncFileRange(fd int, off int64, n int64, flags int) (err error)
+//sys	syncFileRange2(fd int, flags int, off int64, n int64) (err error) = SYS_SYNC_FILE_RANGE2
 //sys	Truncate(path string, length int64) (err error) = SYS_TRUNCATE64
+//sys	utimensat(dirfd int, path string, times *[2]Timespec, flag int) (err error) = SYS_UTIMENSAT_TIME64
 //sys	accept4(s int, rsa *RawSockaddrAny, addrlen *_Socklen, flags int) (fd int, err error)
 //sys	bind(s int, addr unsafe.Pointer, addrlen _Socklen) (err error)
 //sys	connect(s int, addr unsafe.Pointer, addrlen _Socklen) (err error)
@@ -271,7 +271,13 @@ func munmap(addr uintptr, length uintptr) error {
 	return nil
 }
 
-// What the ABI lacks, 32-bit time's calls, from others (as musl's).
+// The kernel's sync_file_range is sync_file_range2 (asm-generic's for
+// 32-bit ABIs): the same call, its arguments in another order.
+func SyncFileRange(fd int, off int64, n int64, flags int) error {
+	return syncFileRange2(fd, flags, off, n)
+}
+
+// 32-bit time's calls, from 64-bit time's (as musl's).
 
 // wait4, by waitid (musl's __emulate_wait4): the rusage is the kernel's for
 // both
