@@ -8,7 +8,6 @@ const (
 	SYS_ACCEPT4                      = 242
 	SYS_ACCT                         = 89
 	SYS_ADD_KEY                      = 217
-	SYS_ADJTIMEX                     = 171
 	SYS_ARCH_SPECIFIC_SYSCALL        = 244
 	SYS_BIND                         = 200
 	SYS_BPF                          = 280
@@ -18,15 +17,10 @@ const (
 	SYS_CAPSET                       = 91
 	SYS_CHDIR                        = 49
 	SYS_CHROOT                       = 51
-	SYS_CLOCK_ADJTIME                = 266
 	SYS_CLOCK_ADJTIME64              = 405
-	SYS_CLOCK_GETRES                 = 114
 	SYS_CLOCK_GETRES_TIME64          = 406
-	SYS_CLOCK_GETTIME                = 113
 	SYS_CLOCK_GETTIME64              = 403
-	SYS_CLOCK_NANOSLEEP              = 115
 	SYS_CLOCK_NANOSLEEP_TIME64       = 407
-	SYS_CLOCK_SETTIME                = 112
 	SYS_CLOCK_SETTIME64              = 404
 	SYS_CLONE                        = 220
 	SYS_CLOSE                        = 57
@@ -76,7 +70,6 @@ const (
 	SYS_FSTATFS64                    = 44
 	SYS_FSYNC                        = 82
 	SYS_FTRUNCATE64                  = 46
-	SYS_FUTEX                        = 98
 	SYS_FUTEX_REQUEUE                = 456
 	SYS_FUTEX_TIME64                 = 422
 	SYS_FUTEX_WAIT                   = 455
@@ -106,7 +99,6 @@ const (
 	SYS_GETSOCKNAME                  = 204
 	SYS_GETSOCKOPT                   = 209
 	SYS_GETTID                       = 178
-	SYS_GETTIMEOFDAY                 = 169
 	SYS_GETUID                       = 174
 	SYS_GETXATTR                     = 8
 	SYS_GETXATTRAT                   = 464
@@ -116,8 +108,6 @@ const (
 	SYS_INOTIFY_RM_WATCH             = 28
 	SYS_IO_CANCEL                    = 3
 	SYS_IO_DESTROY                   = 1
-	SYS_IO_GETEVENTS                 = 4
-	SYS_IO_PGETEVENTS                = 292
 	SYS_IO_PGETEVENTS_TIME64         = 416
 	SYS_IO_SETUP                     = 0
 	SYS_IO_SUBMIT                    = 2
@@ -170,9 +160,7 @@ const (
 	SYS_MQ_GETSETATTR                = 185
 	SYS_MQ_NOTIFY                    = 184
 	SYS_MQ_OPEN                      = 180
-	SYS_MQ_TIMEDRECEIVE              = 183
 	SYS_MQ_TIMEDRECEIVE_TIME64       = 419
-	SYS_MQ_TIMEDSEND                 = 182
 	SYS_MQ_TIMEDSEND_TIME64          = 418
 	SYS_MQ_UNLINK                    = 181
 	SYS_MREMAP                       = 216
@@ -186,7 +174,6 @@ const (
 	SYS_MUNLOCKALL                   = 231
 	SYS_MUNMAP                       = 215
 	SYS_NAME_TO_HANDLE_AT            = 264
-	SYS_NANOSLEEP                    = 101
 	SYS_NFSSERVCTL                   = 42
 	SYS_OPEN_BY_HANDLE_AT            = 265
 	SYS_OPEN_TREE                    = 428
@@ -203,7 +190,6 @@ const (
 	SYS_PKEY_ALLOC                   = 289
 	SYS_PKEY_FREE                    = 290
 	SYS_PKEY_MPROTECT                = 288
-	SYS_PPOLL                        = 73
 	SYS_PPOLL_TIME64                 = 414
 	SYS_PRCTL                        = 167
 	SYS_PREAD64                      = 67
@@ -214,7 +200,6 @@ const (
 	SYS_PROCESS_MRELEASE             = 448
 	SYS_PROCESS_VM_READV             = 270
 	SYS_PROCESS_VM_WRITEV            = 271
-	SYS_PSELECT6                     = 72
 	SYS_PSELECT6_TIME64              = 413
 	SYS_PTRACE                       = 117
 	SYS_PWRITE64                     = 68
@@ -228,7 +213,6 @@ const (
 	SYS_READV                        = 65
 	SYS_REBOOT                       = 142
 	SYS_RECVFROM                     = 207
-	SYS_RECVMMSG                     = 243
 	SYS_RECVMMSG_TIME64              = 417
 	SYS_RECVMSG                      = 212
 	SYS_REMAP_FILE_PAGES             = 234
@@ -245,7 +229,6 @@ const (
 	SYS_RT_SIGPROCMASK               = 135
 	SYS_RT_SIGQUEUEINFO              = 138
 	SYS_RT_SIGSUSPEND                = 133
-	SYS_RT_SIGTIMEDWAIT              = 137
 	SYS_RT_SIGTIMEDWAIT_TIME64       = 421
 	SYS_RT_TGSIGQUEUEINFO            = 240
 	SYS_SCHED_GET_PRIORITY_MAX       = 125
@@ -254,7 +237,6 @@ const (
 	SYS_SCHED_GETATTR                = 275
 	SYS_SCHED_GETPARAM               = 121
 	SYS_SCHED_GETSCHEDULER           = 120
-	SYS_SCHED_RR_GET_INTERVAL        = 127
 	SYS_SCHED_RR_GET_INTERVAL_TIME64 = 423
 	SYS_SCHED_SETAFFINITY            = 122
 	SYS_SCHED_SETATTR                = 274
@@ -265,7 +247,6 @@ const (
 	SYS_SEMCTL                       = 191
 	SYS_SEMGET                       = 190
 	SYS_SEMOP                        = 193
-	SYS_SEMTIMEDOP                   = 192
 	SYS_SEMTIMEDOP_TIME64            = 420
 	SYS_SENDFILE64                   = 71
 	SYS_SENDMMSG                     = 269
@@ -296,7 +277,6 @@ const (
 	SYS_SETRLIMIT                    = 164
 	SYS_SETSID                       = 157
 	SYS_SETSOCKOPT                   = 208
-	SYS_SETTIMEOFDAY                 = 170
 	SYS_SETUID                       = 146
 	SYS_SETXATTR                     = 5
 	SYS_SHMAT                        = 196
@@ -324,14 +304,10 @@ const (
 	SYS_TIMER_CREATE                 = 107
 	SYS_TIMER_DELETE                 = 111
 	SYS_TIMER_GETOVERRUN             = 109
-	SYS_TIMER_GETTIME                = 108
 	SYS_TIMER_GETTIME64              = 408
-	SYS_TIMER_SETTIME                = 110
 	SYS_TIMER_SETTIME64              = 409
 	SYS_TIMERFD_CREATE               = 85
-	SYS_TIMERFD_GETTIME              = 87
 	SYS_TIMERFD_GETTIME64            = 410
-	SYS_TIMERFD_SETTIME              = 86
 	SYS_TIMERFD_SETTIME64            = 411
 	SYS_TIMES                        = 153
 	SYS_TKILL                        = 130
@@ -342,11 +318,9 @@ const (
 	SYS_UNLINKAT                     = 35
 	SYS_UNSHARE                      = 97
 	SYS_USERFAULTFD                  = 282
-	SYS_UTIMENSAT                    = 88
 	SYS_UTIMENSAT_TIME64             = 412
 	SYS_VHANGUP                      = 58
 	SYS_VMSPLICE                     = 75
-	SYS_WAIT4                        = 260
 	SYS_WAITID                       = 95
 	SYS_WASM_SEM_GETVALUE            = 252
 	SYS_WASM_SEM_OPEN                = 246

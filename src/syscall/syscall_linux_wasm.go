@@ -279,6 +279,15 @@ func SyncFileRange(fd int, off int64, n int64, flags int) error {
 
 // 32-bit time's calls, from 64-bit time's (as musl's).
 
+// nanosleep, by clock_nanosleep on CLOCK_REALTIME (musl's)
+func Nanosleep(time *Timespec, leftover *Timespec) (err error) {
+	_, _, e := Syscall6(SYS_CLOCK_NANOSLEEP_TIME64, 0, 0, uintptr(unsafe.Pointer(time)), uintptr(unsafe.Pointer(leftover)), 0, 0)
+	if e != 0 {
+		return errnoErr(e)
+	}
+	return nil
+}
+
 // wait4, by waitid (musl's __emulate_wait4): the rusage is the kernel's for
 // both
 func wait4(pid int, wstatus *_C_int, options int, rusage *Rusage) (wpid int, err error) {

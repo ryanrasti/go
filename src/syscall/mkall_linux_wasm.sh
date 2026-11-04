@@ -37,8 +37,17 @@ export PATH="$shim:$PATH" CC="$shim/gcc" GOOS=linux GOARCH=riscv
 # musl's numbers, as the 32-bit ABI names them: its header gives the *64
 # calls (fcntl64, _llseek, ...) as aliases of asm-generic's __NR3264_
 # numbers, which mksysnum_linux.pl would name by their 64-bit names, so
-# the numbers are resolved first, by a program printing them
-names=$(sed -n 's/^#define \(__NR_[a-z0-9_]*\) .*/\1/p' "$SYSROOT_INCLUDE/bits/syscall.h" | grep -vx __NR_syscalls)
+# the numbers are resolved first, by a program printing them. But the
+# 32-bit time calls (the kernel's __ARCH_WANT_TIME32_SYSCALLS'): their
+# structs aren't ours (Timespec and Timeval are 64-bit time's, as on
+# riscv32), so they're left out, the generic code's names for them made
+# the _time64 calls' in syscall_linux_wasm.go
+time32="adjtimex clock_adjtime clock_getres clock_gettime clock_nanosleep clock_settime futex
+	gettimeofday io_getevents io_pgetevents mq_timedreceive mq_timedsend nanosleep ppoll pselect6
+	recvmmsg rt_sigtimedwait sched_rr_get_interval semtimedop settimeofday timerfd_gettime
+	timerfd_settime timer_gettime timer_settime utimensat wait4"
+names=$(sed -n 's/^#define \(__NR_[a-z0-9_]*\) .*/\1/p' "$SYSROOT_INCLUDE/bits/syscall.h" |
+	grep -vxF -e __NR_syscalls $(printf -- '-e __NR_%s ' $time32))
 {
 	echo "#include <stdio.h>"
 	echo "#include \"$SYSROOT_INCLUDE/bits/syscall.h\""
@@ -63,7 +72,7 @@ gofmt -w zerrors_linux_wasm.go zsysnum_linux_wasm.go ztypes_linux_wasm.go
 # (syscall_linux.go's calls that linux/wasm has its own of, in
 # syscall_linux_wasm.go: munmap; and 32-bit time's, made as musl makes
 # them, with the 64-bit time calls, as our Timespec and Timeval are)
-grep -Ev '^//sys(nb)?	(munmap|wait4|Adjtimex|Settimeofday|utimensat)\(' syscall_linux.go > "$shim/syscall_linux.go"
+grep -Ev '^//sys(nb)?	(munmap|wait4|Adjtimex|Settimeofday|utimensat|Nanosleep)\(' syscall_linux.go > "$shim/syscall_linux.go"
 (cd "$shim" && GOOS= GOARCH= perl "$OLDPWD/mksyscall.pl" -l32 -tags linux,wasm syscall_linux.go "$OLDPWD/syscall_linux_wasm.go") |
 	sed "s| $shim/| |; s| $PWD/| |" > zsyscall_linux_wasm.go
 gofmt -w zsyscall_linux_wasm.go
