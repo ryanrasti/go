@@ -3,7 +3,7 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-# linux-workers: the generated files for linux/wasm, LKL's wasm32 processes.
+# linux-workers: the generated files for linux/wasm, a wasm32 Linux's processes.
 #
 # Their ABI is Linux's asm-generic one for 32 bits, with wasm32's data
 # layout: riscv32's (no 32-bit time system calls, stat only as statx), and
