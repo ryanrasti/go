@@ -179,6 +179,7 @@ type Symbol struct {
 func (s *Symbol) Undefined() bool { return s.Flags&FlagUndefined != 0 }
 func (s *Symbol) Local() bool     { return s.Flags&FlagLocal != 0 }
 func (s *Symbol) Weak() bool      { return s.Flags&FlagWeak != 0 }
+func (s *Symbol) Exported() bool  { return s.Flags&FlagExported != 0 }
 
 // InitFunc is a constructor: a function symbol, run in priority order.
 type InitFunc struct {

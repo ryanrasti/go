@@ -630,6 +630,14 @@ func (ctxt *Link) loadlib() {
 	// Conditionally load host objects, or setup for external linking.
 	hostobjs(ctxt)
 	hostlinksetup(ctxt)
+	if *FlagLibos != "" {
+		// (C's, as cgo's are: cmd/link/internal/wasm/cgo.go)
+		b, err := os.ReadFile(*FlagLibos)
+		if err != nil {
+			Exitf("-libos: %v", err)
+		}
+		wasmHostObjs = append(wasmHostObjs, WasmHostObj{Pn: *FlagLibos, Data: b})
+	}
 	if len(wasmHostObjs) != 0 {
 		thearch.LinkWasmHostObjs(ctxt, ctxt.loader, wasmHostObjs, ldflag)
 	}

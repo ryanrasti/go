@@ -171,6 +171,9 @@ func asmb2(ctxt *ld.Link, ldr *loader.Loader) {
 	// these are added as import statements to the top of the WebAssembly binary
 	var hostImports []*wasmFunc
 	hostImportMap := make(map[loader.Sym]int64)
+	// with -libos, Go's imports that the library OS defines (as C's
+	// function <module>.<name>: linux.syscall, say), by C function
+	libosDefs := make(map[loader.Sym]uint32)
 	for _, fn := range ctxt.Textp {
 		relocs := ldr.Relocs(fn)
 		for ri := 0; ri < relocs.Count(); ri++ {
@@ -178,6 +181,17 @@ func asmb2(ctxt *ld.Link, ldr *loader.Loader) {
 			if r.Type() == objabi.R_WASMIMPORT {
 				if wsym := ldr.WasmImportSym(fn); wsym != 0 {
 					wi := readWasmImport(ldr, wsym)
+					if *ld.FlagLibos != "" {
+						if k, ok := cgo.definedFunc(wi.Module + "." + wi.Name); ok {
+							have := cgo.f.Types[cgo.f.Funcs[k].Type]
+							want := wasmobj.FuncType{Params: fieldsToTypes(wi.Params), Results: fieldsToTypes(wi.Results)}
+							if !have.Equal(want) {
+								ld.Exitf("-libos: %s.%s is %v -> %v, Go's import %v -> %v", wi.Module, wi.Name, have.Params, have.Results, want.Params, want.Results)
+							}
+							libosDefs[fn] = k
+							continue
+						}
+					}
 					hostImportMap[fn] = int64(len(hostImports))
 					hostImports = append(hostImports, &wasmFunc{
 						Module: wi.Module,
@@ -243,6 +257,11 @@ func asmb2(ctxt *ld.Link, ldr *loader.Loader) {
 				case objabi.R_CALL:
 					writeSleb128(wfn, int64(len(hostImports))+ldr.SymValue(rs)>>16-funcValueOffset)
 				case objabi.R_WASMIMPORT:
+					if k, ok := libosDefs[rs]; ok {
+						// (C's functions follow Go's: cgo.go)
+						writeSleb128(wfn, int64(len(hostImports)+len(ctxt.Textp))+int64(k))
+						break
+					}
 					writeSleb128(wfn, hostImportMap[rs])
 				default:
 					ldr.Errorf(fn, "bad reloc type %d (%s)", r.Type(), sym.RelocName(ctxt.Arch, r.Type()))
@@ -299,7 +318,7 @@ func asmb2(ctxt *ld.Link, ldr *loader.Loader) {
 	startIdx := -1 // linux: _start's function index
 	if buildcfg.GOOS == "linux" {
 		startIdx = len(hostImports) + len(fns)
-		fns = append(fns, linuxStartFunc(ldr, len(hostImports), segments, lookupType(&wasmFuncType{}, &types)))
+		fns = append(fns, linuxStartFunc(ldr, len(hostImports), len(ctxt.Textp), segments, lookupType(&wasmFuncType{}, &types)))
 	}
 
 	ctxt.Out.Write([]byte{0x00, 0x61, 0x73, 0x6d}) // magic
@@ -314,7 +333,7 @@ func asmb2(ctxt *ld.Link, ldr *loader.Loader) {
 	writeImportSec(ctxt, ldr, hostImports)
 	writeFunctionSec(ctxt, fns)
 	writeTableSec(ctxt, fns)
-	if buildcfg.GOOS != "linux" { // (linux: imported)
+	if buildcfg.GOOS != "linux" || *ld.FlagLibos != "" { // (linux: imported, but a library OS's)
 		writeMemorySec(ctxt, ldr)
 	}
 	if cgo != nil && len(cgo.tags) > 0 {
@@ -324,7 +343,7 @@ func asmb2(ctxt *ld.Link, ldr *loader.Loader) {
 		})
 	}
 	writeGlobalSec(ctxt, ldr)
-	writeExportSec(ctxt, ldr, len(hostImports), startIdx)
+	writeExportSec(ctxt, ldr, len(hostImports), len(ctxt.Textp), startIdx)
 	writeElementSec(ctxt, uint64(len(hostImports)), uint64(len(fns)))
 	if buildcfg.GOOS == "linux" {
 		writeDataCountSec(ctxt, len(segments))
@@ -399,7 +418,8 @@ func writeImportSec(ctxt *ld.Link, ldr *loader.Loader, hostImports []*wasmFunc) 
 	sizeOffset := writeSecHeader(ctxt, sectionImport)
 
 	numImports := len(hostImports)
-	if buildcfg.GOOS == "linux" {
+	importMemory := buildcfg.GOOS == "linux" && *ld.FlagLibos == ""
+	if importMemory {
 		numImports++ // env.memory
 	}
 	writeUleb128(ctxt.Out, uint64(numImports)) // number of imports
@@ -413,7 +433,7 @@ func writeImportSec(ctxt *ld.Link, ldr *loader.Loader, hostImports []*wasmFunc) 
 		ctxt.Out.WriteByte(0x00) // func import
 		writeUleb128(ctxt.Out, uint64(fn.Type))
 	}
-	if buildcfg.GOOS == "linux" {
+	if importMemory {
 		// linux-workers: the process's memory is the host's (as musl's
 		// programs import it): shared, so that its threads can share it,
 		// and with a maximum, which the host reserves (all of wasm32's).
@@ -552,7 +572,7 @@ func writeGlobalSec(ctxt *ld.Link, ldr *loader.Loader) {
 // writeExportSec writes the section that declares exports.
 // Exports can be accessed by the WebAssembly host, usually JavaScript.
 // The wasm_export_* functions and the linear memory get exported.
-func writeExportSec(ctxt *ld.Link, ldr *loader.Loader, lenHostImports int, startIdx int) {
+func writeExportSec(ctxt *ld.Link, ldr *loader.Loader, lenHostImports, numGoFuncs int, startIdx int) {
 	sizeOffset := writeSecHeader(ctxt, sectionExport)
 
 	switch buildcfg.GOOS {
@@ -588,7 +608,23 @@ func writeExportSec(ctxt *ld.Link, ldr *loader.Loader, lenHostImports int, start
 		// linux-workers: a process of tombl's arch/wasm, as musl's: _start
 		// (binfmt_wasm's entry), and the table the kernel calls functions
 		// of the program's through (signal handlers, a thread's start)
-		writeUleb128(ctxt.Out, uint64(2+len(ldr.WasmExports))) // number of exports
+		// With -libos, a WASI command: _start, its memory, and what
+		// the library OS exports (cabi_realloc, say).
+		// (export_name's: the symbol's name, after a relocatable link)
+		var cExports []*wasmobj.Symbol
+		if *ld.FlagLibos != "" {
+			for i := range cgo.f.Symbols {
+				s := &cgo.f.Symbols[i]
+				if s.Kind == wasmobj.SymFunction && !s.Undefined() && s.Exported() {
+					cExports = append(cExports, s)
+				}
+			}
+		}
+		n := 2 + len(ldr.WasmExports) + len(cExports)
+		if *ld.FlagLibos != "" {
+			n++
+		}
+		writeUleb128(ctxt.Out, uint64(n)) // number of exports
 		writeName(ctxt.Out, "_start")
 		ctxt.Out.WriteByte(0x00)                 // func export
 		writeUleb128(ctxt.Out, uint64(startIdx)) // funcidx: linuxStartFunc
@@ -598,9 +634,19 @@ func writeExportSec(ctxt *ld.Link, ldr *loader.Loader, lenHostImports int, start
 			ctxt.Out.WriteByte(0x00)            // func export
 			writeUleb128(ctxt.Out, uint64(idx)) // funcidx
 		}
+		for _, s := range cExports {
+			writeName(ctxt.Out, s.Name)
+			ctxt.Out.WriteByte(0x00) // func export
+			writeUleb128(ctxt.Out, uint64(lenHostImports+numGoFuncs)+uint64(s.Index)-uint64(cgo.f.NumFuncImports))
+		}
 		writeName(ctxt.Out, "__indirect_function_table")
 		ctxt.Out.WriteByte(0x01)  // table export
 		writeUleb128(ctxt.Out, 0) // tableidx
+		if *ld.FlagLibos != "" {
+			writeName(ctxt.Out, "memory")
+			ctxt.Out.WriteByte(0x02)  // mem export
+			writeUleb128(ctxt.Out, 0) // memidx
+		}
 	case "js":
 		writeUleb128(ctxt.Out, uint64(4+len(ldr.WasmExports))) // number of exports
 		for _, name := range []string{"run", "resume", "getsp"} {
@@ -764,7 +810,7 @@ func writeDataCountSec(ctxt *ld.Link, n int) {
 // linuxStartFunc is linux/wasm's _start: the data segments copied into the
 // memory (which is shared: other instances of the program, a thread's or a
 // vfork child's, leave it as it is), then the runtime's entry.
-func linuxStartFunc(ldr *loader.Loader, lenHostImports int, segments []*dataSegment, typ uint32) *wasmFunc {
+func linuxStartFunc(ldr *loader.Loader, lenHostImports, numGoFuncs int, segments []*dataSegment, typ uint32) *wasmFunc {
 	b := new(bytes.Buffer)
 	writeUleb128(b, 0) // no locals
 	for i, seg := range segments {
@@ -776,6 +822,14 @@ func linuxStartFunc(ldr *loader.Loader, lenHostImports int, segments []*dataSegm
 		b.WriteByte(0x00)           // memidx
 		b.Write([]byte{0xfc, 0x09}) // data.drop
 		writeUleb128(b, uint64(i))
+	}
+	// with -libos, the library OS's _initialize (its kernel's boot), if it
+	// has one, before the runtime starts
+	if *ld.FlagLibos != "" {
+		if k, ok := cgo.definedFunc("_initialize"); ok {
+			b.WriteByte(0x10) // call
+			writeUleb128(b, uint64(lenHostImports+numGoFuncs)+uint64(k))
+		}
 	}
 	s := ldr.Lookup("_rt0_wasm_linux", 0)
 	if s == 0 {

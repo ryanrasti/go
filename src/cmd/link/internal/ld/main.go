@@ -98,6 +98,7 @@ var (
 	flag8             bool // use 64-bit addresses in symbol table
 	flagHostBuildid   = flag.String("B", "", "set ELF NT_GNU_BUILD_ID `note` or Mach-O UUID; use \"gobuildid\" to generate it from the Go build ID; \"none\" to disable")
 	flagInterpreter   = flag.String("I", "", "use `linker` as ELF dynamic linker")
+	FlagLibos         = flag.String("libos", "", "linux/wasm: link with the library OS in `file` (a wasm32 relocatable object: Linux and its host), into a WASI module")
 	flagCheckLinkname = flag.Bool("checklinkname", true, "check linkname symbol references")
 	FlagDebugTramp    = flag.Int("debugtramp", 0, "debug trampolines")
 	FlagDebugTextSize = flag.Int("debugtextsize", 0, "debug text section max size")

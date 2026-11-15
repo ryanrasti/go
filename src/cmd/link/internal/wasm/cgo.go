@@ -50,7 +50,12 @@ var cgoType = &wasmFuncType{Params: []byte{I32}, Results: []byte{I32}}
 type cgoLink struct {
 	f *wasmobj.File
 
-	segs []loader.Sym // each data segment's symbol
+	// each data segment's symbol, and its offset there: C's data is two
+	// symbols, its initialized segments and its zeroed ones, each in the
+	// object's order (as wasm-ld lays them out: the kernel's sections
+	// bounded by markers of their own, as its initcalls, rely on it)
+	segs   []loader.Sym
+	segOff []int64
 	// funcVals are value symbols of C functions (their table indices),
 	// for Go's references and C data's: by C function
 	funcVals map[uint32]loader.Sym
@@ -199,28 +204,41 @@ func (c *cgoLink) load(ctxt *ld.Link, ldr *loader.Loader) error {
 	roots := &ctxt.WasmHostRoots
 
 	// data segments
+	var data, bss []byte
+	var dataAlign, bssAlign int32 = 1, 1
+	dataSym, bssSym := ldr.CreateStaticSym("cgo.data"), ldr.CreateStaticSym("cgo.bss")
 	for i := range f.Segments {
 		seg := &f.Segments[i]
 		if seg.Flags&wasmobj.SegTLS != 0 {
 			return fmt.Errorf("%s: thread-local storage (_Thread_local, __thread) isn't supported", seg.Name)
 		}
-		s := ldr.CreateStaticSym(fmt.Sprintf("cgo(%s)", seg.Name))
-		sb := ldr.MakeSymbolUpdater(s)
-		switch {
-		case strings.HasPrefix(seg.Name, ".bss"), strings.HasPrefix(seg.Name, ".tbss"):
-			sb.SetType(sym.SNOPTRBSS)
-		case strings.HasPrefix(seg.Name, ".rodata"):
-			sb.SetType(sym.SRODATA)
-		default:
-			sb.SetType(sym.SNOPTRDATA)
+		b, align, s := &data, &dataAlign, dataSym
+		if strings.HasPrefix(seg.Name, ".bss") || strings.HasPrefix(seg.Name, ".tbss") {
+			b, align, s = &bss, &bssAlign, bssSym
 		}
-		if sb.Type() != sym.SNOPTRBSS {
-			sb.SetData(append([]byte(nil), seg.Data...))
+		a := int32(1) << seg.Align
+		*align = max(*align, a)
+		for len(*b)%int(a) != 0 {
+			*b = append(*b, 0)
 		}
-		sb.SetSize(int64(len(seg.Data)))
-		sb.SetAlign(int32(1) << seg.Align)
 		c.segs = append(c.segs, s)
-		*roots = append(*roots, s)
+		c.segOff = append(c.segOff, int64(len(*b)))
+		*b = append(*b, seg.Data...)
+	}
+	for _, d := range []struct {
+		s     loader.Sym
+		typ   sym.SymKind
+		b     []byte
+		align int32
+	}{{dataSym, sym.SNOPTRDATA, data, dataAlign}, {bssSym, sym.SNOPTRBSS, bss, bssAlign}} {
+		sb := ldr.MakeSymbolUpdater(d.s)
+		sb.SetType(d.typ)
+		if d.typ != sym.SNOPTRBSS {
+			sb.SetData(d.b)
+		}
+		sb.SetSize(int64(len(d.b)))
+		sb.SetAlign(d.align)
+		*roots = append(*roots, d.s)
 	}
 
 	// C's stack
@@ -321,7 +339,7 @@ func (c *cgoLink) load(ctxt *ld.Link, ldr *loader.Loader) error {
 				if int(s.Segment) >= len(c.segs) {
 					return fmt.Errorf("%s: in segment %d of %d", s.Name, s.Segment, len(c.segs))
 				}
-				r.kind, r.s, r.off = resData, c.segs[s.Segment], int64(s.Offset)
+				r.kind, r.s, r.off = resData, c.segs[s.Segment], c.segOff[s.Segment]+int64(s.Offset)
 				break
 			}
 			switch s.Name {
@@ -417,7 +435,7 @@ func (c *cgoLink) load(ctxt *ld.Link, ldr *loader.Loader) error {
 		if seg < 0 {
 			return fmt.Errorf("a data relocation at 0x%x in no segment", rel.Offset)
 		}
-		off := int32(rel.Offset - f.Segments[seg].Off)
+		off := int32(c.segOff[seg]) + int32(rel.Offset-f.Segments[seg].Off)
 		r := &c.res[rel.Index]
 		var target loader.Sym
 		var add int64
@@ -454,9 +472,7 @@ func (c *cgoLink) load(ctxt *ld.Link, ldr *loader.Loader) error {
 		rr.SetSym(target)
 		rr.SetAdd(add)
 	}
-	for _, s := range c.segs {
-		ldr.MakeSymbolUpdater(s).SortRelocs()
-	}
+	ldr.MakeSymbolUpdater(dataSym).SortRelocs()
 
 	// relocations of code, by function
 	c.codeRelocs = map[uint32][]wasmobj.Reloc{}
@@ -706,6 +722,18 @@ func (c *cgoLink) referrers(i uint32) string {
 		names = append(names[:5], "...")
 	}
 	return strings.Join(names, ", ")
+}
+
+// definedFunc is the C function named name (a global symbol), if C defines
+// one: a library OS's definition of a Go import (-libos), say.
+func (c *cgoLink) definedFunc(name string) (uint32, bool) {
+	for i := range c.f.Symbols {
+		s := &c.f.Symbols[i]
+		if s.Kind == wasmobj.SymFunction && !s.Undefined() && !s.Local() && s.Name == name {
+			return s.Index - uint32(c.f.NumFuncImports), true
+		}
+	}
+	return 0, false
 }
 
 func (c *cgoLink) funcName(k uint32) string {
