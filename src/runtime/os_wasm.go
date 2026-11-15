@@ -14,6 +14,13 @@ func osinit() {
 	physPageSize = 64 * 1024
 	initBloc()
 	blocMax = uintptr(currentMemory()) * physPageSize // record the initial linear memory size
+	if GOOS == "linux" {
+		// The runtime's is the memory the module declares (cmd/link's
+		// initialMemoryPages: its data, and 1 MB): what's beyond is what
+		// others grew before it started (a library OS's kernel and its
+		// threads, linked into the module), which sbrkSync leaves them.
+		blocMax = min(blocMax, alignDown(firstmoduledata.end+1<<20, physPageSize))
+	}
 	numCPUStartup = getCPUCount()
 	getg().m.procid = 2
 	wasmCgoInit()
