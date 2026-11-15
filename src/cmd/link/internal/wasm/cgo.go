@@ -147,7 +147,9 @@ func linkWasmHostObjs(ctxt *ld.Link, ldr *loader.Loader, objs []ld.WasmHostObj, 
 // cgoPrelink links the host objects, with libc and the packages' LDFLAGS,
 // into one relocatable object: the C compiler's -r, which links an archive
 // member for each symbol undefined (as a program's link would; but no
-// startup files, libraries or optimizer: -nostdlib, -O0). libc and the
+// startup files, libraries or optimizer: -nostdlib, and -O0 after the
+// packages' flags, whose -O2, cgo's default, has clang run wasm-opt on
+// the object, which breaks its linking section). libc and the
 // compiler's builtins go to the linker in a response file (-Wl,@file),
 // which a wrapper of the linker that drops them for -r doesn't see.
 func cgoPrelink(ctxt *ld.Link, objs []ld.WasmHostObj, ldflags []string) ([]byte, error) {
@@ -177,7 +179,7 @@ func cgoPrelink(ctxt *ld.Link, objs []ld.WasmHostObj, ldflags []string) ([]byte,
 		return nil, err
 	}
 	out := filepath.Join(dir, "cgo.o")
-	args := append(extld[1:len(extld):len(extld)], "-O0", "-r", "-nostdlib", "-o", out)
+	args := append(extld[1:len(extld):len(extld)], "-r", "-nostdlib", "-o", out)
 	for i, o := range objs {
 		name := filepath.Join(dir, fmt.Sprintf("%06d.o", i))
 		if err := os.WriteFile(name, o.Data, 0o666); err != nil {
@@ -187,7 +189,7 @@ func cgoPrelink(ctxt *ld.Link, objs []ld.WasmHostObj, ldflags []string) ([]byte,
 	}
 	args = append(args, ldflags...)
 	args = append(args, ld.ExtldFlags()...)
-	args = append(args, "-Wl,@"+rsp)
+	args = append(args, "-O0", "-Wl,@"+rsp)
 	if ctxt.Debugvlog != 0 {
 		ctxt.Logf("cgo: %s %v\n", extld[0], args)
 	}
